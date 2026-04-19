@@ -1,0 +1,18 @@
+{
+  "gateway": {
+    "auth": {
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "port": ${OPENCLAW_GATEWAY_PORT},
+    "bind": "lan"
+  },
+  "plugins": {
+    "enabled": ["@clawsy/plugin"]
+  },
+  "agents": {
+    "defaults": {
+      "model": "google:gemini-3.1-pro-preview"
+    },
+    "list": []
+  }
+}
