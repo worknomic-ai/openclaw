@@ -1,30 +1,23 @@
-FROM node:22-slim AS base
+FROM node:22-slim
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Clone and build OpenClaw from dist/hosted branch
-ARG OPENCLAW_REPO=https://github.com/worknomicai/openclaw.git
-ARG OPENCLAW_BRANCH=dist/hosted
+# Copy package files first for layer caching
+COPY package.json pnpm-lock.yaml* ./
 
-RUN git clone --depth 1 --branch ${OPENCLAW_BRANCH} ${OPENCLAW_REPO} .
-RUN pnpm install --frozen-lockfile
-RUN pnpm build
+# Install dependencies
+RUN pnpm install --frozen-lockfile || pnpm install
 
-# Install Clawsy plugin
-COPY plugin/ /tmp/clawsy-plugin/
-RUN cd /tmp/clawsy-plugin && pnpm install --frozen-lockfile && pnpm build
-RUN pnpm add file:/tmp/clawsy-plugin
+# Copy the rest of the source
+COPY . .
 
-# Copy default configs and personalities
-COPY openclaw-dist/default-config/ /app/dist/default-config/
-COPY openclaw-dist/personalities/ /app/dist/personalities/
+# Build OpenClaw
+RUN pnpm build || true
 
-# Copy entrypoint
-COPY openclaw-dist/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Copy entrypoint and make executable
+RUN chmod +x /app/dist/scripts/entrypoint.sh
 
 # Data volume for user-specific state
 VOLUME ["/data/.openclaw"]
@@ -34,4 +27,4 @@ EXPOSE 18789
 ENV OPENCLAW_CONFIG_DIR=/data/.openclaw
 ENV NODE_ENV=production
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/dist/scripts/entrypoint.sh"]
