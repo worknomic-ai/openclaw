@@ -9,6 +9,7 @@ import {
 } from "./app-polling.ts";
 import { observeTopbar, scheduleChatScroll, scheduleLogsScroll } from "./app-scroll.ts";
 import {
+  applySettingsFromCookie,
   applySettingsFromUrl,
   detachThemeListener,
   inferBasePath,
@@ -52,6 +53,10 @@ type LifecycleHost = {
 export function handleConnected(host: LifecycleHost) {
   const connectGeneration = ++host.connectGeneration;
   host.basePath = inferBasePath();
+  // Clawsy deployment: seed the gateway token from a Caddy-set cookie on
+  // /advanced*. Runs before URL params so an explicit #token= override
+  // still wins for power users. See app-settings.ts for the cookie read.
+  applySettingsFromCookie(host as unknown as Parameters<typeof applySettingsFromCookie>[0]);
   applySettingsFromUrl(host as unknown as Parameters<typeof applySettingsFromUrl>[0]);
   const bootstrapReady = loadControlUiBootstrapConfig(host);
   syncTabWithLocation(host as unknown as Parameters<typeof syncTabWithLocation>[0], true);

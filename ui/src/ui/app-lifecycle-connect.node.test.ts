@@ -16,6 +16,7 @@ vi.mock("./controllers/control-ui-bootstrap.ts", () => ({
 }));
 
 vi.mock("./app-settings.ts", () => ({
+  applySettingsFromCookie: vi.fn(),
   applySettingsFromUrl: applySettingsFromUrlMock,
   attachThemeListener: vi.fn(),
   detachThemeListener: vi.fn(),

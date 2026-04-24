@@ -176,6 +176,43 @@ function applySessionSelection(host: SettingsHost, session: string) {
 /** Set to true when the token is read from a query string (?token=) instead of a URL fragment. */
 export let warnQueryToken = false;
 
+// Clawsy-specific token source: a same-origin cookie set by the Caddy
+// reverse proxy when the Control UI is served at /advanced* on a user
+// subdomain. Lets Clawsy hand the per-VM gateway bearer to the Control
+// UI without the user pasting it into Settings, and without exposing
+// the token in the URL bar. The cookie is JS-readable (not HttpOnly)
+// because it's the WS client that needs it, and it's scoped to the
+// subdomain + SameSite=Strict so cross-site JS can't steal it.
+function readClawsyGatewayTokenCookie(): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const raw = document.cookie;
+  if (!raw) {
+    return null;
+  }
+  for (const piece of raw.split(";")) {
+    const [rawName, ...rest] = piece.trim().split("=");
+    if (rawName !== "clawsy_gateway_token") {
+      continue;
+    }
+    const value = rest.join("=");
+    return decodeURIComponent(value || "") || null;
+  }
+  return null;
+}
+
+export function applySettingsFromCookie(host: SettingsHost) {
+  const cookieToken = readClawsyGatewayTokenCookie();
+  if (!cookieToken) {
+    return;
+  }
+  if (host.settings.token === cookieToken) {
+    return;
+  }
+  applySettings(host, { ...host.settings, token: cookieToken });
+}
+
 export function applySettingsFromUrl(host: SettingsHost) {
   if (!window.location.search && !window.location.hash) {
     return;
