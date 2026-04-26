@@ -11,8 +11,20 @@ import type {
 
 const log = createSubsystemLogger("gateway").child("voiceclaw-realtime");
 
-const GEMINI_WS_URL =
+const GEMINI_WS_URL_DEFAULT =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+
+// Allow hosting environments (e.g. Clawsy) to redirect Gemini Live traffic
+// through a central WS proxy that injects the upstream key, so per-tenant
+// VMs never hold a real Google API key. The proxy is expected to:
+//   - Accept the same `?key=<credential>` shape Gemini Live uses (the
+//     proxy validates the credential its own way).
+//   - Speak the same Bidi protocol bytes — the proxy just shuttles frames.
+// When unset, falls back to the official Google endpoint.
+function resolveGeminiWsUrl(): string {
+  const override = process.env.OPENCLAW_VOICECLAW_GEMINI_URL?.trim();
+  return override || GEMINI_WS_URL_DEFAULT;
+}
 const DEFAULT_MODEL = "gemini-3.1-flash-live-preview";
 const SETUP_TIMEOUT_MS = 15_000;
 const WATCHDOG_TIMEOUT_MS = 20_000;
@@ -187,7 +199,7 @@ export class VoiceClawGeminiLiveAdapter implements VoiceClawRealtimeAdapter {
     }
 
     const model = this.config.model || DEFAULT_MODEL;
-    const ws = new WebSocket(`${GEMINI_WS_URL}?key=${encodeURIComponent(apiKey)}`);
+    const ws = new WebSocket(`${resolveGeminiWsUrl()}?key=${encodeURIComponent(apiKey)}`);
     this.upstream = ws;
 
     return new Promise((resolve, reject) => {
