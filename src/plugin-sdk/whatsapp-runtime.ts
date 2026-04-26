@@ -60,3 +60,54 @@ export function readWhatsAppSelfIdForAccount(opts: {
     lid: (result as { lid?: string | null }).lid ?? null,
   };
 }
+
+// Create a self-only WhatsApp group via a fresh, ephemeral Baileys
+// socket using the auth state currently on disk for `accountId`.
+// Designed for the brief window after QR pair completes but BEFORE
+// the gateway has loaded the persistent monitorWebChannel socket
+// (which only happens after the connection's status flips to active
+// and the config-sync triggers a plugin-load gateway restart). The
+// alternative — calling groupCreate via getActiveWebListener — fails
+// in that window because the login socket has already been closed
+// and the persistent monitor socket hasn't started yet.
+//
+// Returns null on transport failure / timeout. Empty `participants`
+// is intentional: modern WhatsApp accepts self-only groups, which is
+// the per-agent thread model Clawsy uses (designs/whatsapp.md §4).
+import { createWaSocket, waitForWaConnection } from "../../extensions/whatsapp/src/session.js";
+import { closeWaSocket } from "../../extensions/whatsapp/src/connection-controller.js";
+
+export async function createWhatsAppSelfOnlyGroupViaFreshSocket(opts: {
+  cfg: OpenClawConfig;
+  accountId: string;
+  subject: string;
+  timeoutMs?: number;
+}): Promise<{ jid: string } | null> {
+  const account = resolveWhatsAppAccount({ cfg: opts.cfg, accountId: opts.accountId });
+  const sock = await createWaSocket(false, false, { authDir: account.authDir });
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const connected = Promise.race([
+      waitForWaConnection(sock),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("groupCreate-socket: connection timeout")), timeoutMs);
+      }),
+    ]);
+    await connected;
+    if (timer) clearTimeout(timer);
+    const result = await (sock as unknown as {
+      groupCreate: (subject: string, participants: string[]) => Promise<{ id: string }>;
+    }).groupCreate(opts.subject, []);
+    return { jid: result.id };
+  } catch {
+    if (timer) clearTimeout(timer);
+    return null;
+  } finally {
+    try {
+      closeWaSocket(sock);
+    } catch {
+      // best-effort
+    }
+  }
+}
