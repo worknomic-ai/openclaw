@@ -30,6 +30,7 @@ export function createWebSendApi(params: {
       options?: MiscMessageGenerationOptions,
     ) => Promise<unknown>;
     sendPresenceUpdate: (presence: WAPresence, jid?: string) => Promise<unknown>;
+    groupCreate: (subject: string, participants: string[]) => Promise<{ id: string }>;
   };
   defaultAccountId: string;
 }) {
@@ -129,6 +130,15 @@ export function createWebSendApi(params: {
     sendComposingTo: async (to: string): Promise<void> => {
       const jid = toWhatsappJid(to);
       await params.sock.sendPresenceUpdate("composing", jid);
+    },
+    groupCreate: async (
+      subject: string,
+      participants: string[] = [],
+    ): Promise<{ jid: string }> => {
+      // WhatsApp now supports zero-participant (self-only) groups; passing
+      // an empty array is intentional for Clawsy's per-agent-thread model.
+      const result = await params.sock.groupCreate(subject, participants);
+      return { jid: result.id };
     },
   } as const;
 }

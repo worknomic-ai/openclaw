@@ -747,6 +747,13 @@ export async function attachWebInboxToSocket(
         }
         return currentSock.sendPresenceUpdate(presence, jid);
       },
+      groupCreate: async (subject: string, participants: string[]) => {
+        const currentSock = getCurrentSock();
+        if (!currentSock) {
+          throw new Error(RECONNECT_IN_PROGRESS_ERROR);
+        }
+        return currentSock.groupCreate(subject, participants);
+      },
     },
     defaultAccountId: options.accountId,
   });

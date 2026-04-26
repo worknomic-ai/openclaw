@@ -27,3 +27,8 @@ export {
 } from "./src/group-policy.js";
 export { resolveWhatsAppGroupIntroHint } from "./src/runtime-api.js";
 export { __testing as whatsappAccessControlTesting } from "./src/inbound/access-control.js";
+// Plugin-facing runtime accessor: get the active WhatsApp listener for
+// a given accountId. Returns null when no Baileys socket is currently
+// connected for that account. Used by Clawsy to deliver A2UI card
+// fallback text + drive per-agent self-only group creation on pair.
+export { getActiveWebListener, resolveWebAccountId } from "./src/active-listener.js";

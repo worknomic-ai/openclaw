@@ -39,6 +39,10 @@ export type ActiveWebListener = {
     participant?: string,
   ) => Promise<void>;
   sendComposingTo: (to: string) => Promise<void>;
+  // Create a WhatsApp group on the live socket. participants may be
+  // empty — modern WhatsApp accepts self-only groups, which Clawsy
+  // uses for per-agent threads on a user's paired account.
+  groupCreate: (subject: string, participants?: string[]) => Promise<{ jid: string }>;
   close?: () => Promise<void>;
 };
 
