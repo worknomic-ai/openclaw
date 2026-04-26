@@ -77,10 +77,56 @@ export function readWhatsAppSelfIdForAccount(opts: {
 import { createWaSocket, waitForWaConnection } from "../../extensions/whatsapp/src/session.js";
 import { closeWaSocket } from "../../extensions/whatsapp/src/connection-controller.js";
 
+// Render a solid-color 192×192 PNG buffer for use as a WhatsApp group
+// avatar. A solid color from a fixed palette is enough to make each
+// per-agent group visually distinct in the user's chat list without
+// needing emoji-rendering or font infrastructure. WhatsApp clients
+// crop the image to a circle on display, so the visible result is a
+// colored disc in the chat list.
+async function renderSolidColorAvatarPng(hexColor: string): Promise<Buffer> {
+  const { Jimp } = await import("jimp");
+  const cleaned = hexColor.replace(/^#/, "");
+  const r = parseInt(cleaned.slice(0, 2), 16);
+  const g = parseInt(cleaned.slice(2, 4), 16);
+  const b = parseInt(cleaned.slice(4, 6), 16);
+  const rgba = (r << 24) | (g << 16) | (b << 8) | 0xff;
+  const img = new Jimp({ width: 192, height: 192, color: rgba >>> 0 });
+  return await img.getBuffer("image/png");
+}
+
+// Hash a string to one of N palette colors. Stable per agent so the
+// same agent always gets the same color. Palette chosen for distinct
+// hues at WhatsApp's small display size.
+const AVATAR_PALETTE = [
+  "#fbbf24", // amber
+  "#3b82f6", // blue
+  "#10b981", // emerald
+  "#ec4899", // pink
+  "#8b5cf6", // violet
+  "#f97316", // orange
+  "#14b8a6", // teal
+  "#f43f5e", // rose
+];
+function colorForAgent(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(hash) % AVATAR_PALETTE.length;
+  return AVATAR_PALETTE[idx]!;
+}
+
 export async function createWhatsAppSelfOnlyGroupViaFreshSocket(opts: {
   cfg: OpenClawConfig;
   accountId: string;
   subject: string;
+  // Post-create customization. Both optional; if omitted the helper
+  // just creates the group like before. Done in the SAME socket
+  // session as groupCreate so we don't pay for two round-trips.
+  welcomeText?: string;
+  // Seed for the avatar color hash. Typically the agent's name so
+  // re-running customization for the same agent yields the same color.
+  avatarSeed?: string;
   timeoutMs?: number;
 }): Promise<{ jid: string } | null> {
   const account = resolveWhatsAppAccount({ cfg: opts.cfg, accountId: opts.accountId });
@@ -96,10 +142,35 @@ export async function createWhatsAppSelfOnlyGroupViaFreshSocket(opts: {
     ]);
     await connected;
     if (timer) clearTimeout(timer);
+
     const result = await (sock as unknown as {
       groupCreate: (subject: string, participants: string[]) => Promise<{ id: string }>;
     }).groupCreate(opts.subject, []);
-    return { jid: result.id };
+    const jid = result.id;
+
+    // Post-create customization: avatar + welcome message. These are
+    // best-effort — a failure here doesn't roll back the group create
+    // (the user has a usable group, just without flair).
+    if (opts.avatarSeed) {
+      try {
+        const png = await renderSolidColorAvatarPng(colorForAgent(opts.avatarSeed));
+        await (sock as unknown as {
+          updateProfilePicture: (jid: string, content: Buffer) => Promise<void>;
+        }).updateProfilePicture(jid, png);
+      } catch {
+        // best-effort
+      }
+    }
+    if (opts.welcomeText) {
+      try {
+        await (sock as unknown as {
+          sendMessage: (jid: string, content: { text: string }) => Promise<unknown>;
+        }).sendMessage(jid, { text: opts.welcomeText });
+      } catch {
+        // best-effort
+      }
+    }
+    return { jid };
   } catch {
     if (timer) clearTimeout(timer);
     return null;
