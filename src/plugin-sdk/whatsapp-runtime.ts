@@ -31,3 +31,32 @@ export type {
   ActiveWebListener,
   ActiveWebSendOptions,
 } from "../../extensions/whatsapp/src/inbound/types.js";
+
+// Read the linked WhatsApp identity (E.164 + JID) from the on-disk
+// creds for an accountId. Used by external plugins to surface the
+// real linked number after pair — the listener doesn't expose it
+// directly. Returns null fields when no creds exist or the file is
+// malformed.
+
+import type { OpenClawConfig } from "./config-runtime.js";
+import { resolveWhatsAppAccount } from "../../extensions/whatsapp/src/accounts.js";
+import { readWebSelfId } from "../../extensions/whatsapp/src/auth-store.js";
+
+export interface WhatsAppSelfIdReadResult {
+  e164: string | null;
+  jid: string | null;
+  lid: string | null;
+}
+
+export function readWhatsAppSelfIdForAccount(opts: {
+  cfg: OpenClawConfig;
+  accountId: string;
+}): WhatsAppSelfIdReadResult {
+  const account = resolveWhatsAppAccount({ cfg: opts.cfg, accountId: opts.accountId });
+  const result = readWebSelfId(account.authDir);
+  return {
+    e164: result.e164 ?? null,
+    jid: result.jid ?? null,
+    lid: (result as { lid?: string | null }).lid ?? null,
+  };
+}
