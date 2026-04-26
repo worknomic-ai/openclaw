@@ -491,8 +491,14 @@ export async function startWebLoginWithPairingCode(
   try {
     sock = await createWaSocket(false, Boolean(opts.verbose), {
       authDir: account.authDir,
-      // No onQr — we want pairing-code mode. Baileys defaults to QR
-      // generation but only emits events when something subscribes.
+      // No onQr — we want pairing-code mode.
+      //
+      // Browser tuple overridden specifically for pairing-code: a
+      // recognized desktop-browser string ("Chrome (Linux)") avoids
+      // anti-abuse rejections on the IQ endpoint that fire with our
+      // default openclaw-cli string. QR mode keeps the default; the
+      // QR IQ endpoint doesn't apply the same scrutiny.
+      browser: ["Chrome (Linux)", "Chrome", "127.0.0"],
     });
   } catch (err) {
     return { error: `Failed to start WhatsApp login: ${String(err)}` };

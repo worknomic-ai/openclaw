@@ -121,7 +121,18 @@ async function printTerminalQr(qr: string): Promise<void> {
 export async function createWaSocket(
   printQr: boolean,
   verbose: boolean,
-  opts: { authDir?: string; onQr?: (qr: string) => void } = {},
+  opts: {
+    authDir?: string;
+    onQr?: (qr: string) => void;
+    // Override the browser identification tuple Baileys sends to
+    // WhatsApp's servers. Some WhatsApp endpoints (notably the
+    // pairing-code IQ flow) run stricter anti-abuse on the browser
+    // string than the QR endpoint and reject non-standard values
+    // (e.g. our default ["openclaw", "cli", VERSION]) with status 401
+    // ~3s after the request. Pass a recognized desktop-browser tuple
+    // for those flows.
+    browser?: [string, string, string];
+  } = {},
 ): Promise<ReturnType<typeof makeWASocket>> {
   const baseLogger = getChildLogger(
     { module: "baileys" },
@@ -154,7 +165,7 @@ export async function createWaSocket(
     version,
     logger,
     printQRInTerminal: false,
-    browser: ["openclaw", "cli", VERSION],
+    browser: opts.browser ?? ["openclaw", "cli", VERSION],
     syncFullHistory: false,
     markOnlineOnConnect: false,
     agent,
