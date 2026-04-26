@@ -1249,6 +1249,10 @@
       "types": "./dist/plugin-sdk/voice-call.d.ts",
       "default": "./dist/plugin-sdk/voice-call.js"
     },
+    "./plugin-sdk/whatsapp-runtime": {
+      "types": "./dist/plugin-sdk/whatsapp-runtime.d.ts",
+      "default": "./dist/plugin-sdk/whatsapp-runtime.js"
+    },
     "./plugin-sdk/zalo": {
       "types": "./dist/plugin-sdk/zalo.d.ts",
       "default": "./dist/plugin-sdk/zalo.js"
