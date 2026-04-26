@@ -437,6 +437,113 @@ export async function startWebLoginWithQr(
   };
 }
 
+export type StartWebLoginWithPairingCodeResult =
+  | { pairingCode: string; message: string; connected?: false }
+  | { connected: true; message: string }
+  | { error: string };
+
+// Mobile-friendly alternative to startWebLoginWithQr: instead of a QR
+// the user scans, Baileys hands back an 8-character code the user types
+// into WhatsApp (Linked Devices → "Link with phone number instead").
+// The same socket events drive the rest of the flow, so waitForWebLogin
+// resolves identically for both paths.
+//
+// `phoneNumber` is the WhatsApp number the user is pairing — must be
+// E.164 with leading + (e.g. "+15555550100"); we strip the + before
+// handing it to Baileys.
+export async function startWebLoginWithPairingCode(
+  opts: {
+    verbose?: boolean;
+    force?: boolean;
+    accountId?: string;
+    phoneNumber: string;
+    runtime?: RuntimeEnv;
+  },
+): Promise<StartWebLoginWithPairingCodeResult> {
+  const runtime = opts.runtime ?? defaultRuntime;
+  const cfg = loadConfig();
+  const account = resolveWhatsAppAccount({ cfg, accountId: opts.accountId });
+  const authState = await readWebAuthExistsForDecision(account.authDir);
+  if (authState.outcome === "unstable") {
+    return { error: "WhatsApp auth state is still stabilizing. Retry in a moment." };
+  }
+  if (authState.exists && !opts.force) {
+    const selfId = readWebSelfId(account.authDir);
+    const who = selfId.e164 ?? selfId.jid ?? "unknown";
+    return {
+      connected: true,
+      message: `WhatsApp is already linked (${who}).`,
+    };
+  }
+
+  // Strip leading '+' for Baileys, then verify it's all digits.
+  const cleanedPhone = opts.phoneNumber.replace(/^\+/, "").replace(/[\s\-()]/g, "");
+  if (!/^\d{8,15}$/.test(cleanedPhone)) {
+    return {
+      error: `Invalid phone number for pairing: "${opts.phoneNumber}". Use E.164 like "+15555550100".`,
+    };
+  }
+
+  await resetActiveLogin(account.accountId);
+
+  let sock: WaSocket;
+  const loginId = randomUUID();
+  try {
+    sock = await createWaSocket(false, Boolean(opts.verbose), {
+      authDir: account.authDir,
+      // No onQr — we want pairing-code mode. Baileys defaults to QR
+      // generation but only emits events when something subscribes.
+    });
+  } catch (err) {
+    return { error: `Failed to start WhatsApp login: ${String(err)}` };
+  }
+
+  // requestPairingCode is the Baileys API for the phone-code path.
+  // Must be called after socket creation but BEFORE the socket
+  // registers (i.e. before any successful pair).
+  let pairingCode: string;
+  try {
+    const requestFn = (sock as unknown as {
+      requestPairingCode?: (phoneNumber: string) => Promise<string>;
+    }).requestPairingCode;
+    if (typeof requestFn !== "function") {
+      closeWaSocket(sock);
+      return { error: "This Baileys build does not support pairing codes." };
+    }
+    pairingCode = await requestFn.call(sock, cleanedPhone);
+  } catch (err) {
+    closeWaSocket(sock);
+    return { error: `Pairing-code request failed: ${String(err)}` };
+  }
+
+  const login: ActiveLogin = {
+    accountId: account.accountId,
+    authDir: account.authDir,
+    isLegacyAuthDir: account.isLegacyAuthDir,
+    id: loginId,
+    sock,
+    startedAt: Date.now(),
+    connected: false,
+    waitPromise: Promise.resolve(),
+    qrVersion: 0,
+    qrUpdatePromise: Promise.resolve(),
+    resolveQrUpdate: null,
+    qrRenderPromise: null,
+    verbose: Boolean(opts.verbose),
+    runtime,
+  };
+  resetQrUpdateSignal(login);
+  activeLogins.set(account.accountId, login);
+  attachLoginWaiter(account.accountId, login);
+
+  runtime.log(info(`WhatsApp pairing code issued for ${cleanedPhone}.`));
+  return {
+    pairingCode,
+    message:
+      "In WhatsApp: Settings → Linked Devices → Link a Device → Link with phone number instead. Type this code.",
+  };
+}
+
 export async function waitForWebLogin(
   opts: {
     timeoutMs?: number;

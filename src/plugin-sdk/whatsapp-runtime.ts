@@ -19,6 +19,7 @@
 
 export {
   startWebLoginWithQr,
+  startWebLoginWithPairingCode,
   waitForWebLogin,
 } from "../../extensions/whatsapp/login-qr-runtime.js";
 
