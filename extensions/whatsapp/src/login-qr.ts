@@ -498,22 +498,62 @@ export async function startWebLoginWithPairingCode(
     return { error: `Failed to start WhatsApp login: ${String(err)}` };
   }
 
-  // requestPairingCode is the Baileys API for the phone-code path.
-  // Must be called after socket creation but BEFORE the socket
-  // registers (i.e. before any successful pair).
-  let pairingCode: string;
-  try {
-    const requestFn = (sock as unknown as {
-      requestPairingCode?: (phoneNumber: string) => Promise<string>;
-    }).requestPairingCode;
-    if (typeof requestFn !== "function") {
-      closeWaSocket(sock);
-      return { error: "This Baileys build does not support pairing codes." };
-    }
-    pairingCode = await requestFn.call(sock, cleanedPhone);
-  } catch (err) {
+  // requestPairingCode sends a query over the WhatsApp websocket. The
+  // websocket isn't ready immediately after createWaSocket — Baileys
+  // is still doing its initial handshake. Calling too early throws
+  // "Connection Closed". Wait briefly for the socket to surface a
+  // connection.update event signaling it's started talking to
+  // WhatsApp, then retry on transient closure.
+  const requestFn = (sock as unknown as {
+    requestPairingCode?: (phoneNumber: string) => Promise<string>;
+  }).requestPairingCode;
+  if (typeof requestFn !== "function") {
     closeWaSocket(sock);
-    return { error: `Pairing-code request failed: ${String(err)}` };
+    return { error: "This Baileys build does not support pairing codes." };
+  }
+
+  await new Promise<void>((resolve) => {
+    type OffCapable = {
+      off?: (event: string, listener: (...args: unknown[]) => void) => void;
+    };
+    const evOff = sock.ev as unknown as OffCapable;
+    const handler = (...args: unknown[]) => {
+      const update = (args[0] ?? {}) as { connection?: string; qr?: string };
+      if (update.connection === "connecting" || update.connection === "open" || update.qr) {
+        evOff.off?.("connection.update", handler);
+        resolve();
+      }
+    };
+    sock.ev.on("connection.update", handler);
+    // Hard cap so we don't hang forever if the socket never emits.
+    setTimeout(() => {
+      evOff.off?.("connection.update", handler);
+      resolve();
+    }, 5_000);
+  });
+
+  let pairingCode: string | null = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 6 && pairingCode === null; attempt += 1) {
+    try {
+      pairingCode = await requestFn.call(sock, cleanedPhone);
+    } catch (err) {
+      lastError = err;
+      const msg = String(err);
+      if (!/Connection Closed|not connected|Connection Failure/i.test(msg)) {
+        // Permanent error (not a timing issue).
+        closeWaSocket(sock);
+        return { error: `Pairing-code request failed: ${msg}` };
+      }
+      // Transient: socket still establishing. Brief wait and retry.
+      await new Promise((r) => setTimeout(r, 750));
+    }
+  }
+  if (pairingCode === null) {
+    closeWaSocket(sock);
+    return {
+      error: `Pairing-code request failed after retries: ${String(lastError)}`,
+    };
   }
 
   const login: ActiveLogin = {
