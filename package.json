@@ -1169,6 +1169,10 @@
       "types": "./dist/plugin-sdk/secret-input-runtime.d.ts",
       "default": "./dist/plugin-sdk/secret-input-runtime.js"
     },
+    "./plugin-sdk/session-reset-runtime": {
+      "types": "./dist/plugin-sdk/session-reset-runtime.d.ts",
+      "default": "./dist/plugin-sdk/session-reset-runtime.js"
+    },
     "./plugin-sdk/channel-status": {
       "types": "./dist/plugin-sdk/channel-status.d.ts",
       "default": "./dist/plugin-sdk/channel-status.js"
