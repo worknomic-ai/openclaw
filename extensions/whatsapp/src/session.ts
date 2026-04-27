@@ -167,7 +167,17 @@ export async function createWaSocket(
     printQRInTerminal: false,
     browser: opts.browser ?? ["openclaw", "cli", VERSION],
     syncFullHistory: false,
-    markOnlineOnConnect: false,
+    // markOnlineOnConnect: true — empirically required for WhatsApp's
+    // server to push fromMe messages from the user's primary phone to
+    // this linked-device session. Self-only WhatsApp groups (only the
+    // user as participant) do NOT get delivered to a linked device that
+    // signals "offline" at connect; the server treats them as already-
+    // delivered to the sending device and skips the linked-device push.
+    // Trade-off: the primary phone may suppress its own push notifications
+    // for third-party DMs while a linked device is "online" — Clawsy's
+    // self-only-group flow needs delivery to the linked device above all
+    // else, so we accept the notification trade-off.
+    markOnlineOnConnect: true,
     agent,
     // Baileys types still model `fetchAgent` as a Node agent even though the
     // runtime path accepts an undici dispatcher for upload fetches.
