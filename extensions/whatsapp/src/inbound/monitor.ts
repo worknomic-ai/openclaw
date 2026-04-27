@@ -37,6 +37,7 @@ import {
 } from "./extract.js";
 import { attachEmitterListener, closeInboundMonitorSocket } from "./lifecycle.js";
 import { downloadInboundMedia } from "./media.js";
+import { getWhatsAppOutboundHook } from "./outbound-hook.js";
 import { DisconnectReason, isJidGroup, saveMediaBuffer } from "./runtime-api.js";
 import { createWebSendApi } from "./send-api.js";
 import {
@@ -541,14 +542,96 @@ export async function attachWebInboxToSocket(
         logWhatsAppVerbose(options.verbose, `Presence update failed: ${String(err)}`);
       }
     };
-    const reply = async (text: string, options?: MiscMessageGenerationOptions) => {
-      await sendTrackedMessage(chatJid, { text }, options);
+    // Auto-reply outbound goes through this path (not createWebSendApi —
+    // that's the IPC/tools path). Run the registered outbound hook here so
+    // self-only group / self-DM agent replies pick up the visual prefix
+    // and react ✅ on completion against the inbound that triggered the
+    // turn (designs/whatsapp.md §10.5; outbound-hook.ts WhatsAppOutboundContext).
+    // Scoped per-call: each inbound has its own trigger id so retries /
+    // multi-chunk follow-ups don't leak the wrong id.
+    const inboundTriggerMessageId = inbound.id;
+    const runOutboundHookForReply = async (
+      text: string,
+    ): Promise<{
+      text: string;
+      afterSend?: (sentMessageId: string) => Promise<void>;
+    }> => {
+      if (!text) {
+        return { text };
+      }
+      const hook = getWhatsAppOutboundHook();
+      if (!hook) {
+        return { text };
+      }
+      try {
+        const result = await hook({
+          jid: chatJid,
+          accountId: options.accountId,
+          isGroup: inbound.group,
+          text,
+          inboundTriggerMessageId,
+        });
+        const effectiveText = typeof result.text === "string" ? result.text : text;
+        const afterSend = result.afterSend;
+        return {
+          text: effectiveText,
+          afterSend: afterSend
+            ? async (sentMessageId: string) => {
+                const currentSock = getCurrentSock();
+                if (!currentSock) {
+                  return;
+                }
+                try {
+                  await afterSend({
+                    jid: chatJid,
+                    sock: currentSock,
+                    sentMessageId,
+                    inboundTriggerMessageId,
+                  });
+                } catch (err) {
+                  // eslint-disable-next-line no-console
+                  console.warn("[whatsapp monitor] outbound afterSend hook threw:", err);
+                }
+              }
+            : undefined,
+        };
+      } catch {
+        // Hook errors must not break the send.
+        return { text };
+      }
+    };
+    const resolveSentMessageId = (result: unknown): string => {
+      return typeof result === "object" && result && "key" in result
+        ? ((result as { key?: { id?: string } }).key?.id ?? "unknown")
+        : "unknown";
+    };
+    const reply = async (text: string, sendOptions?: MiscMessageGenerationOptions) => {
+      const hooked = await runOutboundHookForReply(text);
+      const result = await sendTrackedMessage(chatJid, { text: hooked.text }, sendOptions);
+      if (hooked.afterSend) {
+        await hooked.afterSend(resolveSentMessageId(result));
+      }
     };
     const sendMedia = async (
       payload: AnyMessageContent,
-      options?: MiscMessageGenerationOptions,
+      sendOptions?: MiscMessageGenerationOptions,
     ) => {
-      await sendTrackedMessage(chatJid, payload, options);
+      // Extract the user-visible text from whichever variant of
+      // AnyMessageContent this is — caption for media, text for plain.
+      // Hook only operates on text; media buffers pass through untouched.
+      const payloadWithText = payload as { text?: string; caption?: string };
+      const originalText = payloadWithText.text ?? payloadWithText.caption ?? "";
+      const hooked = await runOutboundHookForReply(originalText);
+      const transformedPayload: AnyMessageContent =
+        hooked.text === originalText
+          ? payload
+          : "text" in payloadWithText && payloadWithText.text !== undefined
+            ? ({ ...payload, text: hooked.text } as AnyMessageContent)
+            : ({ ...payload, caption: hooked.text || undefined } as AnyMessageContent);
+      const result = await sendTrackedMessage(chatJid, transformedPayload, sendOptions);
+      if (hooked.afterSend) {
+        await hooked.afterSend(resolveSentMessageId(result));
+      }
     };
     const timestamp = inbound.messageTimestampMs;
     const mentionedJids = extractMentionedJids(msg.message as proto.IMessage | undefined);

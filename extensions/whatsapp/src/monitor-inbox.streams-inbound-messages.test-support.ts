@@ -3,6 +3,7 @@ import path from "node:path";
 import "./monitor-inbox.test-harness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WhatsAppRetryableInboundError } from "./inbound/dedupe.js";
+import { setWhatsAppOutboundHook } from "./inbound/outbound-hook.js";
 import {
   type InboxMonitorOptions,
   InboxOnMessage,
@@ -637,5 +638,76 @@ describe("web monitor inbox", () => {
         message: { conversation: "original" },
       },
     });
+  });
+
+  // Verifies the seam wired in inbound/monitor.ts so the registered outbound
+  // hook (extensions/whatsapp/src/inbound/outbound-hook.ts) sees the inbound
+  // message id that triggered the auto-reply. The plugin afterSend callback
+  // uses this to react ✅ on the original inbound (decision D5 / Task 3b).
+  it("forwards the inbound trigger message id to the outbound hook for auto-replies", async () => {
+    const hookCalls: Array<{
+      text: string;
+      inboundTriggerMessageId?: string;
+      isGroup: boolean;
+    }> = [];
+    const afterSendCalls: Array<{
+      jid: string;
+      sentMessageId: string;
+      inboundTriggerMessageId?: string;
+    }> = [];
+    setWhatsAppOutboundHook((ctx) => {
+      hookCalls.push({
+        text: ctx.text,
+        inboundTriggerMessageId: ctx.inboundTriggerMessageId,
+        isGroup: ctx.isGroup,
+      });
+      return {
+        text: `[hooked] ${ctx.text}`,
+        afterSend: ({ jid, sentMessageId, inboundTriggerMessageId }) => {
+          afterSendCalls.push({ jid, sentMessageId, inboundTriggerMessageId });
+        },
+      };
+    });
+    try {
+      const onMessage = vi.fn(async (msg) => {
+        await msg.reply("pong");
+      });
+      const { listener, sock } = await startInboxMonitor(onMessage as InboxOnMessage);
+      sock.sendMessage.mockResolvedValueOnce({ key: { id: "outbound-1" } });
+      const triggerId = nextMessageId("hook-trigger");
+      sock.ev.emit(
+        "messages.upsert",
+        buildNotifyMessageUpsert({
+          id: triggerId,
+          remoteJid: "999@s.whatsapp.net",
+          text: "ping",
+          timestamp: 1_700_000_000,
+          pushName: "Tester",
+        }),
+      );
+      await waitForMessageCalls(onMessage, 1);
+
+      expect(hookCalls).toEqual([
+        {
+          text: "pong",
+          inboundTriggerMessageId: triggerId,
+          isGroup: false,
+        },
+      ]);
+      expect(sock.sendMessage).toHaveBeenCalledWith("999@s.whatsapp.net", {
+        text: "[hooked] pong",
+      });
+      expect(afterSendCalls).toEqual([
+        {
+          jid: "999@s.whatsapp.net",
+          sentMessageId: "outbound-1",
+          inboundTriggerMessageId: triggerId,
+        },
+      ]);
+
+      await listener.close();
+    } finally {
+      setWhatsAppOutboundHook(null);
+    }
   });
 });
