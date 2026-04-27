@@ -59,8 +59,12 @@ export function isBotMentionedFromTargets(
         return true;
       }
     }
-    // If the message explicitly mentions someone else, do not fall back to regex matches.
-    return false;
+    // Even when the message explicitly mentions someone else, fall through
+    // to regex matches so configured handles (e.g. "@Dobby.Pru") still
+    // invoke the bot. The previous behavior — return false on explicit
+    // mention of any other party — silently dropped the bot's own
+    // documented invocation syntax in groups where the user's compose
+    // UI auto-attached a contact mention to the typed `@`.
   } else if (hasMentions && isSelfChat) {
     // Self-chat mode: ignore WhatsApp @mention JIDs, otherwise @mentioning the owner in group chats triggers the bot.
   }

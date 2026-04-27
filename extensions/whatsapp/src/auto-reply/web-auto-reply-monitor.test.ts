@@ -371,7 +371,12 @@ describe("applyGroupGating", () => {
     expect(result.shouldProcess).toBe(true);
   });
 
-  it("does not treat group mention gating as self-chat under implicit self fallback", async () => {
+  it("processes group mention via configured handle even when other contacts are mentioned", async () => {
+    // Inverted assertion: the configured "@openclaw" handle is the bot's
+    // explicit invocation syntax — it must trigger the bot regardless of
+    // whether the user's compose UI also auto-attached a contact mention
+    // to the typed `@`. Previously this returned false (drop), which
+    // silently broke the documented invocation in 2-participant groups.
     const cfg = makeConfig({
       channels: {
         whatsapp: {
@@ -381,7 +386,7 @@ describe("applyGroupGating", () => {
       messages: { groupChat: { mentionPatterns: ["@openclaw"] } },
     });
 
-    const { result, groupHistories } = await runGroupGating({
+    const { result } = await runGroupGating({
       cfg,
       msg: createGroupMessage({
         id: "g-other-mention",
@@ -392,8 +397,7 @@ describe("applyGroupGating", () => {
       }),
     });
 
-    expect(result.shouldProcess).toBe(false);
-    expect(groupHistories.get("whatsapp:default:group:123@g.us")?.length).toBe(1);
+    expect(result.shouldProcess).toBe(true);
   });
 
   it.each([

@@ -41,14 +41,18 @@ describe("isBotMentionedFromTargets", () => {
     expect(isBotMentionedFromTargets(msg, cfg, targets)).toBe(expected);
   }
 
-  it("ignores regex matches when other mentions are present", () => {
+  it("falls through to regex matches even when other mentions are present", () => {
+    // Configured handles (e.g. "@OpenClaw") need to invoke the bot
+    // regardless of whether the user's compose UI also auto-attached a
+    // contact mention to the typed `@`. Previously this returned false;
+    // we now fall through to the regex check so explicit handles work.
     const msg = makeMsg({
       body: "@OpenClaw please help",
       mentionedJids: ["19998887777@s.whatsapp.net"],
       selfE164: "+15551234567",
       selfJid: "15551234567@s.whatsapp.net",
     });
-    expectMentioned(msg, mentionCfg, false);
+    expectMentioned(msg, mentionCfg, true);
   });
 
   it("matches explicit self mentions", () => {
