@@ -2,10 +2,12 @@ import type {
   AnyMessageContent,
   MiscMessageGenerationOptions,
   WAPresence,
+  WASocket,
 } from "@whiskeysockets/baileys";
 import { recordChannelActivity } from "openclaw/plugin-sdk/infra-runtime";
 import { buildQuotedMessageOptions } from "../quoted-message.js";
 import { toWhatsappJid } from "../text-runtime.js";
+import { getWhatsAppOutboundHook, type WhatsAppOutboundResult } from "./outbound-hook.js";
 import type { ActiveWebSendOptions } from "./types.js";
 
 function recordWhatsAppOutbound(accountId: string) {
@@ -22,18 +24,18 @@ function resolveOutboundMessageId(result: unknown): string {
     : "unknown";
 }
 
-export function createWebSendApi(params: {
-  sock: {
-    sendMessage: (
-      jid: string,
-      content: AnyMessageContent,
-      options?: MiscMessageGenerationOptions,
-    ) => Promise<unknown>;
-    sendPresenceUpdate: (presence: WAPresence, jid?: string) => Promise<unknown>;
-    groupCreate: (subject: string, participants: string[]) => Promise<{ id: string }>;
-  };
-  defaultAccountId: string;
-}) {
+type SendApiSock = {
+  sendMessage: (
+    jid: string,
+    content: AnyMessageContent,
+    options?: MiscMessageGenerationOptions,
+  ) => Promise<unknown>;
+  sendPresenceUpdate: (presence: WAPresence, jid?: string) => Promise<unknown>;
+  groupCreate?: (subject: string, participants: string[]) => Promise<{ id: string }>;
+  chatModify?: WASocket["chatModify"];
+};
+
+export function createWebSendApi(params: { sock: SendApiSock; defaultAccountId: string }) {
   return {
     sendMessage: async (
       to: string,
@@ -43,6 +45,34 @@ export function createWebSendApi(params: {
       sendOptions?: ActiveWebSendOptions,
     ): Promise<{ messageId: string }> => {
       const jid = toWhatsappJid(to);
+      const accountId = sendOptions?.accountId ?? params.defaultAccountId;
+
+      // Plugin-provided outbound transform (optional). Applies when there
+      // is non-empty text (text-only OR media-with-caption — for the
+      // latter the caption IS the text payload). Hook returns replacement
+      // text and/or an afterSend callback that runs once the send resolves.
+      let effectiveText = text;
+      let afterSend: WhatsAppOutboundResult["afterSend"] | undefined;
+      if (text) {
+        const hook = getWhatsAppOutboundHook();
+        if (hook) {
+          try {
+            const result = await hook({
+              jid,
+              accountId,
+              isGroup: jid.endsWith("@g.us"),
+              text,
+            });
+            if (typeof result.text === "string") {
+              effectiveText = result.text;
+            }
+            afterSend = result.afterSend;
+          } catch {
+            // Hook errors must not break the send.
+          }
+        }
+      }
+
       let payload: AnyMessageContent;
       if (mediaBuffer) {
         mediaType ??= "application/octet-stream";
@@ -51,7 +81,7 @@ export function createWebSendApi(params: {
         if (mediaType.startsWith("image/")) {
           payload = {
             image: mediaBuffer,
-            caption: text || undefined,
+            caption: effectiveText || undefined,
             mimetype: mediaType,
           };
         } else if (mediaType.startsWith("audio/")) {
@@ -60,7 +90,7 @@ export function createWebSendApi(params: {
           const gifPlayback = sendOptions?.gifPlayback;
           payload = {
             video: mediaBuffer,
-            caption: text || undefined,
+            caption: effectiveText || undefined,
             mimetype: mediaType,
             ...(gifPlayback ? { gifPlayback: true } : {}),
           };
@@ -69,12 +99,12 @@ export function createWebSendApi(params: {
           payload = {
             document: mediaBuffer,
             fileName,
-            caption: text || undefined,
+            caption: effectiveText || undefined,
             mimetype: mediaType,
           };
         }
       } else {
-        payload = { text };
+        payload = { text: effectiveText };
       }
       const quotedOpts = buildQuotedMessageOptions({
         messageId: sendOptions?.quotedMessageKey?.id,
@@ -86,9 +116,16 @@ export function createWebSendApi(params: {
       const result = quotedOpts
         ? await params.sock.sendMessage(jid, payload, quotedOpts)
         : await params.sock.sendMessage(jid, payload);
-      const accountId = sendOptions?.accountId ?? params.defaultAccountId;
       recordWhatsAppOutbound(accountId);
       const messageId = resolveOutboundMessageId(result);
+      if (afterSend) {
+        try {
+          await afterSend({ jid, sock: params.sock as WASocket, sentMessageId: messageId });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("[whatsapp send-api] outbound afterSend hook threw:", err);
+        }
+      }
       return { messageId };
     },
     sendPoll: async (
@@ -131,12 +168,12 @@ export function createWebSendApi(params: {
       const jid = toWhatsappJid(to);
       await params.sock.sendPresenceUpdate("composing", jid);
     },
-    groupCreate: async (
-      subject: string,
-      participants: string[] = [],
-    ): Promise<{ jid: string }> => {
+    groupCreate: async (subject: string, participants: string[] = []): Promise<{ jid: string }> => {
       // WhatsApp now supports zero-participant (self-only) groups; passing
       // an empty array is intentional for Clawsy's per-agent-thread model.
+      if (!params.sock.groupCreate) {
+        throw new Error("groupCreate not supported by this socket adapter");
+      }
       const result = await params.sock.groupCreate(subject, participants);
       return { jid: result.id };
     },

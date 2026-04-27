@@ -33,15 +33,22 @@ export type {
   ActiveWebSendOptions,
 } from "../../extensions/whatsapp/src/inbound/types.js";
 
+export { setWhatsAppOutboundHook } from "../../extensions/whatsapp/src/inbound/outbound-hook.js";
+export type {
+  WhatsAppOutboundHook,
+  WhatsAppOutboundContext,
+  WhatsAppOutboundResult,
+} from "../../extensions/whatsapp/src/inbound/outbound-hook.js";
+
 // Read the linked WhatsApp identity (E.164 + JID) from the on-disk
 // creds for an accountId. Used by external plugins to surface the
 // real linked number after pair — the listener doesn't expose it
 // directly. Returns null fields when no creds exist or the file is
 // malformed.
 
-import type { OpenClawConfig } from "./config-runtime.js";
 import { resolveWhatsAppAccount } from "../../extensions/whatsapp/src/accounts.js";
 import { readWebSelfId } from "../../extensions/whatsapp/src/auth-store.js";
+import type { OpenClawConfig } from "./config-runtime.js";
 
 export interface WhatsAppSelfIdReadResult {
   e164: string | null;
@@ -62,6 +69,7 @@ export function readWhatsAppSelfIdForAccount(opts: {
   };
 }
 
+import { closeWaSocket } from "../../extensions/whatsapp/src/connection-controller.js";
 // Create a self-only WhatsApp group via a fresh, ephemeral Baileys
 // socket using the auth state currently on disk for `accountId`.
 // Designed for the brief window after QR pair completes but BEFORE
@@ -76,23 +84,21 @@ export function readWhatsAppSelfIdForAccount(opts: {
 // is intentional: modern WhatsApp accepts self-only groups, which is
 // the per-agent thread model Clawsy uses (designs/whatsapp.md §4).
 import { createWaSocket, waitForWaConnection } from "../../extensions/whatsapp/src/session.js";
-import { closeWaSocket } from "../../extensions/whatsapp/src/connection-controller.js";
+import { getChildLogger } from "./runtime-env.js";
 
-// Render a solid-color 192×192 PNG buffer for use as a WhatsApp group
-// avatar. A solid color from a fixed palette is enough to make each
-// per-agent group visually distinct in the user's chat list without
-// needing emoji-rendering or font infrastructure. WhatsApp clients
-// crop the image to a circle on display, so the visible result is a
-// colored disc in the chat list.
-async function renderSolidColorAvatarPng(hexColor: string): Promise<Buffer> {
+// Render a solid-color 640×640 JPEG buffer for use as a WhatsApp group
+// avatar. WhatsApp's updateProfilePicture is markedly more reliable on
+// JPEGs sourced from a higher-resolution input (the server resamples
+// before storing); a 192×192 PNG silently fails for many accounts.
+async function renderSolidColorAvatarJpeg(hexColor: string): Promise<Buffer> {
   const { Jimp } = await import("jimp");
   const cleaned = hexColor.replace(/^#/, "");
   const r = parseInt(cleaned.slice(0, 2), 16);
   const g = parseInt(cleaned.slice(2, 4), 16);
   const b = parseInt(cleaned.slice(4, 6), 16);
   const rgba = (r << 24) | (g << 16) | (b << 8) | 0xff;
-  const img = new Jimp({ width: 192, height: 192, color: rgba >>> 0 });
-  return await img.getBuffer("image/png");
+  const img = new Jimp({ width: 640, height: 640, color: rgba >>> 0 });
+  return await img.getBuffer("image/jpeg", { quality: 85 });
 }
 
 // Hash a string to one of N palette colors. Stable per agent so the
@@ -138,15 +144,20 @@ export async function createWhatsAppSelfOnlyGroupViaFreshSocket(opts: {
     const connected = Promise.race([
       waitForWaConnection(sock),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("groupCreate-socket: connection timeout")), timeoutMs);
+        timer = setTimeout(
+          () => reject(new Error("groupCreate-socket: connection timeout")),
+          timeoutMs,
+        );
       }),
     ]);
     await connected;
     if (timer) clearTimeout(timer);
 
-    const result = await (sock as unknown as {
-      groupCreate: (subject: string, participants: string[]) => Promise<{ id: string }>;
-    }).groupCreate(opts.subject, []);
+    const result = await (
+      sock as unknown as {
+        groupCreate: (subject: string, participants: string[]) => Promise<{ id: string }>;
+      }
+    ).groupCreate(opts.subject, []);
     const jid = result.id;
 
     // Post-create customization: avatar + welcome message. These are
@@ -154,19 +165,26 @@ export async function createWhatsAppSelfOnlyGroupViaFreshSocket(opts: {
     // (the user has a usable group, just without flair).
     if (opts.avatarSeed) {
       try {
-        const png = await renderSolidColorAvatarPng(colorForAgent(opts.avatarSeed));
-        await (sock as unknown as {
-          updateProfilePicture: (jid: string, content: Buffer) => Promise<void>;
-        }).updateProfilePicture(jid, png);
-      } catch {
-        // best-effort
+        const jpeg = await renderSolidColorAvatarJpeg(colorForAgent(opts.avatarSeed));
+        await (
+          sock as unknown as {
+            updateProfilePicture: (jid: string, content: Buffer) => Promise<void>;
+          }
+        ).updateProfilePicture(jid, jpeg);
+      } catch (err) {
+        getChildLogger({ module: "wa-self-only-group" }).warn(
+          { err: err instanceof Error ? err.message : String(err), jid },
+          "updateProfilePicture failed",
+        );
       }
     }
     if (opts.welcomeText) {
       try {
-        await (sock as unknown as {
-          sendMessage: (jid: string, content: { text: string }) => Promise<unknown>;
-        }).sendMessage(jid, { text: opts.welcomeText });
+        await (
+          sock as unknown as {
+            sendMessage: (jid: string, content: { text: string }) => Promise<unknown>;
+          }
+        ).sendMessage(jid, { text: opts.welcomeText });
       } catch {
         // best-effort
       }
