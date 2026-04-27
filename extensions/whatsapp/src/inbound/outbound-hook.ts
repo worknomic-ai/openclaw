@@ -5,6 +5,24 @@ export interface WhatsAppOutboundContext {
   accountId: string;
   isGroup: boolean;
   text: string;
+  // Agent that authored this outbound. Populated when the outbound was
+  // initiated by a runtime turn (cron / inbound-reply / tool); absent when
+  // the send is a non-agent dispatch (e.g. pairing replies). The plugin
+  // uses this to apply per-agent transforms — visually prefixing the
+  // message with "▸ <displayName> ▸" so the user can tell agents apart in
+  // a self-only group, self-DM, or public-group invocation reply
+  // (designs/whatsapp.md §10.5, decision D7).
+  agentId?: string;
+  // Convenience mirror of identity.name from the openclaw outbound
+  // context. The plugin can derive its prefix off this directly without
+  // round-tripping the agent registry, since the renderer already
+  // resolved the display name at delivery time.
+  agentDisplayName?: string;
+  // The inbound message id that triggered this turn, when applicable
+  // (e.g. an agent reply in response to a user message). Lets the plugin
+  // mark the inbound with a ✅ reaction once the outbound lands
+  // (decision D5 + Task 3b).
+  inboundTriggerMessageId?: string;
 }
 
 export interface WhatsAppOutboundResult {
@@ -13,6 +31,7 @@ export interface WhatsAppOutboundResult {
     jid: string;
     sock: WASocket;
     sentMessageId: string;
+    inboundTriggerMessageId?: string;
   }) => void | Promise<void>;
 }
 

@@ -51,8 +51,14 @@ export function createWebSendApi(params: { sock: SendApiSock; defaultAccountId: 
       // is non-empty text (text-only OR media-with-caption — for the
       // latter the caption IS the text payload). Hook returns replacement
       // text and/or an afterSend callback that runs once the send resolves.
+      // agentId / agentDisplayName / inboundTriggerMessageId are passed
+      // through from the outbound caller so the plugin can apply per-agent
+      // transforms (visual prefix, completion reactions). Their absence
+      // is fine — the hook handles non-agent sends (e.g. pairing replies)
+      // by no-op'ing.
       let effectiveText = text;
       let afterSend: WhatsAppOutboundResult["afterSend"] | undefined;
+      const inboundTriggerMessageId = sendOptions?.inboundTriggerMessageId;
       if (text) {
         const hook = getWhatsAppOutboundHook();
         if (hook) {
@@ -62,6 +68,9 @@ export function createWebSendApi(params: { sock: SendApiSock; defaultAccountId: 
               accountId,
               isGroup: jid.endsWith("@g.us"),
               text,
+              agentId: sendOptions?.agentId,
+              agentDisplayName: sendOptions?.agentDisplayName,
+              inboundTriggerMessageId,
             });
             if (typeof result.text === "string") {
               effectiveText = result.text;
@@ -120,7 +129,12 @@ export function createWebSendApi(params: { sock: SendApiSock; defaultAccountId: 
       const messageId = resolveOutboundMessageId(result);
       if (afterSend) {
         try {
-          await afterSend({ jid, sock: params.sock as WASocket, sentMessageId: messageId });
+          await afterSend({
+            jid,
+            sock: params.sock as WASocket,
+            sentMessageId: messageId,
+            inboundTriggerMessageId,
+          });
         } catch (err) {
           // eslint-disable-next-line no-console
           console.warn("[whatsapp send-api] outbound afterSend hook threw:", err);

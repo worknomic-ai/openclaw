@@ -76,6 +76,10 @@ export async function sendMessageWhatsApp(
       messageText?: string;
     };
     preserveLeadingWhitespace?: boolean;
+    // Per-agent metadata forwarded to the registered outbound hook.
+    // identity.name as resolved by resolveAgentOutboundIdentity at the
+    // turn-delivery layer; lets the plugin apply the visual prefix.
+    agentDisplayName?: string;
   },
 ): Promise<{ messageId: string; toJid: string }> {
   let text = options.preserveLeadingWhitespace ? body : normalizeWhatsAppPayloadText(body);
@@ -139,12 +143,18 @@ export async function sendMessageWhatsApp(
     await active.sendComposingTo(to);
     const hasExplicitAccountId = Boolean(options.accountId?.trim());
     const accountId = hasExplicitAccountId ? resolvedAccountId : undefined;
+    const agentDisplayName = options.agentDisplayName?.trim() || undefined;
     const sendOptions: ActiveWebSendOptions | undefined =
-      options.gifPlayback || accountId || documentFileName || options.quotedMessageKey
+      options.gifPlayback ||
+      accountId ||
+      documentFileName ||
+      options.quotedMessageKey ||
+      agentDisplayName
         ? {
             ...(options.gifPlayback ? { gifPlayback: true } : {}),
             ...(documentFileName ? { fileName: documentFileName } : {}),
             ...(options.quotedMessageKey ? { quotedMessageKey: options.quotedMessageKey } : {}),
+            ...(agentDisplayName ? { agentDisplayName } : {}),
             accountId,
           }
         : undefined;

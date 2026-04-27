@@ -40,6 +40,11 @@ type WhatsAppSendTextOptions = {
     messageText?: string;
   };
   preserveLeadingWhitespace?: boolean;
+  // Per-agent metadata forwarded to the registered outbound hook
+  // (extensions/whatsapp/src/inbound/outbound-hook.ts). Plugins use this
+  // to apply per-agent transforms — visual prefix in self-only groups,
+  // self-DM, and public-group invocations (designs/whatsapp.md §10.5).
+  agentDisplayName?: string;
 };
 type WhatsAppSendMessage = (
   to: string,
@@ -147,7 +152,7 @@ export function createWhatsAppOutboundBase({
     resolveTarget,
     ...createAttachedChannelResultAdapter({
       channel: "whatsapp",
-      sendText: async ({ cfg, to, text, accountId, deps, gifPlayback, replyToId }) => {
+      sendText: async ({ cfg, to, text, accountId, deps, gifPlayback, replyToId, identity }) => {
         const normalizedText = normalizeText(text);
         if (skipEmptyText && !normalizedText) {
           return { messageId: "" };
@@ -168,6 +173,7 @@ export function createWhatsAppOutboundBase({
           accountId: accountId ?? undefined,
           gifPlayback,
           quotedMessageKey,
+          agentDisplayName: identity?.name,
         });
       },
       sendMedia: async ({
@@ -182,6 +188,7 @@ export function createWhatsAppOutboundBase({
         deps,
         gifPlayback,
         replyToId,
+        identity,
       }) => {
         const send =
           resolveOutboundSendDep<WhatsAppSendMessage>(deps, "whatsapp", {
@@ -203,6 +210,7 @@ export function createWhatsAppOutboundBase({
           accountId: accountId ?? undefined,
           gifPlayback,
           quotedMessageKey,
+          agentDisplayName: identity?.name,
         });
       },
       sendPoll: async ({ cfg, to, poll, accountId }) =>

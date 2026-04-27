@@ -20,6 +20,14 @@ export type ActiveWebSendOptions = {
   gifPlayback?: boolean;
   accountId?: string;
   fileName?: string;
+  // Agent that authored the outbound. Plumbed through to the registered
+  // outbound hook (see ./outbound-hook.ts) so plugins can apply per-agent
+  // transforms — visual prefix, mark-unread, completion reactions.
+  agentId?: string;
+  agentDisplayName?: string;
+  // Inbound message id that triggered this outbound, when this send is a
+  // reply. Lets the outbound hook react to the inbound (✅ on completion).
+  inboundTriggerMessageId?: string;
 };
 
 export type ActiveWebListener = {
