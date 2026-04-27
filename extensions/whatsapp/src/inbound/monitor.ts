@@ -385,6 +385,7 @@ export async function attachWebInboxToSocket(
       return null;
     }
     const participantJid = msg.key?.participant ?? undefined;
+
     const from = group ? remoteJid : await resolveInboundJid(remoteJid);
     if (!from) {
       return null;

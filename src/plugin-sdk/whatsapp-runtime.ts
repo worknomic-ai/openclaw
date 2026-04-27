@@ -40,6 +40,12 @@ export type {
   WhatsAppOutboundResult,
 } from "../../extensions/whatsapp/src/inbound/outbound-hook.js";
 
+export { setWhatsAppInboundEventHook } from "../../extensions/whatsapp/src/inbound/inbound-event-hook.js";
+export type {
+  WhatsAppInboundEventHook,
+  WhatsAppInboundEvent,
+} from "../../extensions/whatsapp/src/inbound/inbound-event-hook.js";
+
 // Read the linked WhatsApp identity (E.164 + JID) from the on-disk
 // creds for an accountId. Used by external plugins to surface the
 // real linked number after pair — the listener doesn't expose it
