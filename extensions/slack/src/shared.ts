@@ -116,7 +116,14 @@ export function createSlackPluginBase(params: {
     streaming: {
       blockStreamingCoalesceDefaults: { minChars: 1500, idleMs: 1000 },
     },
-    reload: { configPrefixes: ["channels.slack"] },
+    // Include `plugins.entries.slack` so plugin-entry-level edits (enable
+    // toggles, hooks, subagent caps) restart only the Slack channel rather
+    // than tripping the BASE_RELOAD_RULES_TAIL `plugins → restart` rule and
+    // bouncing the whole gateway. Bouncing the whole gateway cycles the
+    // WhatsApp Baileys WS, which loses the Signal Sender Key chain for
+    // self-only groups and breaks inbound decryption until the chain is
+    // rebuilt — see openclaw extensions/whatsapp/src/inbound/sender-key-resync.ts.
+    reload: { configPrefixes: ["channels.slack", "plugins.entries.slack"] },
     security: slackSecurityAdapter,
     configSchema: SlackChannelConfigSchema,
     config: {
