@@ -39,6 +39,10 @@ import { attachEmitterListener, closeInboundMonitorSocket } from "./lifecycle.js
 import { downloadInboundMedia } from "./media.js";
 import { DisconnectReason, isJidGroup, saveMediaBuffer } from "./runtime-api.js";
 import { createWebSendApi } from "./send-api.js";
+import {
+  collectSelfOnlyGroupJidsFromConfig,
+  runSenderKeyResyncOnConnect,
+} from "./sender-key-resync.js";
 import type { WebInboundMessage, WebListenerCloseReason } from "./types.js";
 
 const LOGGED_OUT_STATUS = DisconnectReason?.loggedOut ?? 401;
@@ -732,6 +736,26 @@ export async function attachWebInboxToSocket(
       );
     }
   })();
+
+  // Force a sender-key resync against the user's primary phone for our
+  // known self-only groups. Without this, a gateway restart leaves the
+  // Signal Sender Key chain out of sync — the primary keeps encrypting
+  // group messages assuming we still hold its current key, and our side
+  // drops every `skmsg` until the chain is rebuilt. See
+  // ./sender-key-resync.ts for the full rationale + Baileys version notes.
+  const selfOnlyGroupJids = collectSelfOnlyGroupJidsFromConfig(options.cfg, options.accountId);
+  if (selfOnlyGroupJids.length > 0) {
+    void runSenderKeyResyncOnConnect({
+      sock,
+      groupJids: selfOnlyGroupJids,
+      verbose: options.verbose,
+      abortSignal: options.disconnectRetryAbortSignal,
+    }).catch((err) => {
+      const error = String(err);
+      inboundLogger.warn({ error }, "sender-key resync on connect failed");
+      inboundConsoleLog.warn(`Sender-key resync on connect failed: ${error}`);
+    });
+  }
 
   const sendApi = createWebSendApi({
     sock: {
