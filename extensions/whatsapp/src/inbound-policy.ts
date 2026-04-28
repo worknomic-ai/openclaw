@@ -124,13 +124,47 @@ export function resolveWhatsAppInboundPolicy(params: {
     isDmSenderAllowed: (allowEntries, sender) =>
       isSamePhone(sender) || isNormalizedSenderAllowed(allowEntries, sender),
     isGroupSenderAllowed: (allowEntries, sender) => isNormalizedSenderAllowed(allowEntries, sender),
-    resolveConversationGroupPolicy: (conversationId) =>
-      resolveChannelGroupPolicy({
+    resolveConversationGroupPolicy: (conversationId) => {
+      const groupId = resolveGroupConversationId(conversationId);
+      const baseConfig = resolveChannelGroupPolicy({
         cfg: resolvedGroupCfg,
         channel: "whatsapp",
-        groupId: resolveGroupConversationId(conversationId),
+        groupId,
         hasGroupAllowFrom: effectiveGroupAllowFrom.length > 0,
-      }),
+      });
+      const resolver = getWhatsAppConversationPolicyResolver();
+      if (!resolver) {
+        return baseConfig;
+      }
+      try {
+        const configRequireMention = resolveChannelGroupRequireMention({
+          cfg: resolvedGroupCfg,
+          channel: "whatsapp",
+          groupId,
+        });
+        const override = resolver({
+          cfg: params.cfg,
+          accountId: params.accountId ?? null,
+          conversationId: groupId,
+          configRequireMention,
+          configAllowed: baseConfig.allowed,
+        });
+        if (override && typeof override.groupBlocked === "boolean") {
+          return {
+            ...baseConfig,
+            allowed: !override.groupBlocked,
+            // When the resolver wants to BLOCK, force allowlistEnabled
+            // true so applyGroupGating's `allowlistEnabled && !allowed`
+            // branch fires. When the resolver wants to ALLOW, leave
+            // allowlistEnabled as the rendered config decided.
+            allowlistEnabled: override.groupBlocked ? true : baseConfig.allowlistEnabled,
+          };
+        }
+      } catch {
+        // Defensive: a buggy resolver must never break gating.
+      }
+      return baseConfig;
+    },
     resolveConversationRequireMention: (conversationId) => {
       const groupId = resolveGroupConversationId(conversationId);
       const configRequireMention = resolveChannelGroupRequireMention({
@@ -143,11 +177,18 @@ export function resolveWhatsAppInboundPolicy(params: {
         return configRequireMention;
       }
       try {
+        const baseGroupPolicy = resolveChannelGroupPolicy({
+          cfg: resolvedGroupCfg,
+          channel: "whatsapp",
+          groupId,
+          hasGroupAllowFrom: effectiveGroupAllowFrom.length > 0,
+        });
         const override = resolver({
           cfg: params.cfg,
           accountId: params.accountId ?? null,
           conversationId: groupId,
           configRequireMention,
+          configAllowed: baseGroupPolicy.allowed,
         });
         if (override && typeof override.requireMention === "boolean") {
           return override.requireMention;

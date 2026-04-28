@@ -1,20 +1,27 @@
 // Plugin-registered runtime override for per-conversation WhatsApp
-// inbound policy. Today the only knob exposed is `requireMention`
-// (group activation: "always" vs "mention"); the shape is open so we
-// can extend without churning the contract.
+// inbound policy. Two knobs are exposed today:
+//
+//   - `requireMention`: governs the mention gate
+//     (auto-reply/monitor/group-gating.ts: applyGroupGating mention check)
+//   - `groupBlocked`: governs the allowlist gate that fires *earlier*
+//     in the same path. When the resolver returns `groupBlocked: true`,
+//     the allowlist gate behaves as if the group is not in the
+//     allowlist — message is dropped before mention/auto-reply runs.
+//     When `groupBlocked: false`, the gate is forced open even if the
+//     rendered config would otherwise drop the message.
 //
 // Why this exists: per-conversation policy is durable in the rendered
 // openclaw.json (channels.whatsapp.accounts.<id>.groups.<jid>.requireMention),
-// but a slash command like /join changes intent ahead of the renderer
-// catching up — provisioner DB write → /vm/config poll (~20s) → file
-// rewrite → chokidar reload. That gap used to drop messages or force a
-// gateway restart.
+// but a slash command like /join /leave changes intent ahead of the
+// rendered config catching up. Worse, the bundled WhatsApp channel
+// declares `noopPrefixes: ["channels.whatsapp"]` — so reload-plan
+// classifies group-map changes as no-op, and the running gateway never
+// re-reads the new groups map. Without a runtime override, post-/leave
+// the rendered config can show "group absent" forever while gating
+// keeps using the start-time snapshot that still has the group entry.
 //
-// With this seam, the plugin holds an in-memory cache of recent
-// command-driven policy changes and overrides on the inbound hot path.
-// The cache self-evicts when the rendered config catches up (resolver
-// sees `configRequireMention` matches its cached value → drops the
-// entry, returns undefined, falls through to config).
+// This seam fires on every inbound and consults plugin memory directly,
+// sidestepping the no-op classification entirely.
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 
@@ -25,16 +32,26 @@ export interface WhatsAppConversationPolicyEvent {
   // cache off this. For DMs this is the peer E.164.
   conversationId: string;
   // The value the rendered config would produce for this conversation.
-  // Provided so the resolver can do equality-based self-eviction
-  // without reaching back into the same resolver helpers.
   configRequireMention: boolean;
+  // The allowlist decision the rendered config would produce for this
+  // conversation. True = allowlist gate would let the message through
+  // (group is in the configured groups map, or wildcard, or open).
+  // False = allowlist gate would drop. Provided so the resolver can do
+  // equality-based reconciliation against the cache.
+  configAllowed: boolean;
 }
 
 export interface WhatsAppConversationPolicyResult {
   // When set, overrides the config-derived requireMention for this
-  // conversation. When omitted/undefined, the inbound path falls back
-  // to the config-derived value.
+  // conversation.
   requireMention?: boolean;
+  // When `true`, overrides the allowlist gate decision to BLOCK (group
+  // treated as not-in-allowlist regardless of rendered config). When
+  // `false`, overrides the allowlist gate decision to ALLOW (group
+  // treated as allowlisted regardless of rendered config). When
+  // omitted, the inbound path falls back to the config-derived
+  // allowlist decision.
+  groupBlocked?: boolean;
 }
 
 export type WhatsAppConversationPolicyResolver = (
