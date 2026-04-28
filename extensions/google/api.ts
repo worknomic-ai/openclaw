@@ -46,6 +46,26 @@ type GoogleGenerativeAiRequestOverrides = ProviderRequestTransportOverrides & {
   allowPrivateNetwork?: boolean;
 };
 
+// Hostname allowlist for the Gemini-shape baseUrl. Default = the real Google
+// endpoint. The OPENCLAW_GEMINI_TRUSTED_HOSTS env var (comma-separated list)
+// extends the allowlist for self-hosted Gemini-shape proxies. Used by the
+// Clawsy fork to route Gemini-shape video/audio traffic through our gateway,
+// which translates to a local Qwen2.5-VL on an L4 GPU. The trust here is
+// transport-level only — auth is unchanged (still parseGeminiAuth on the
+// apiKey), so a misconfigured trusted host can leak the api key to the wrong
+// origin but cannot exfiltrate user data via the request body alone.
+function isTrustedGeminiHostname(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  if (lower === "generativelanguage.googleapis.com") {
+    return true;
+  }
+  const extra = (process.env.OPENCLAW_GEMINI_TRUSTED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  return extra.includes(lower);
+}
+
 function resolveTrustedGoogleGenerativeAiBaseUrl(baseUrl?: string): string {
   const normalized =
     normalizeGoogleGenerativeAiBaseUrl(baseUrl ?? DEFAULT_GOOGLE_API_BASE_URL) ??
@@ -58,12 +78,9 @@ function resolveTrustedGoogleGenerativeAiBaseUrl(baseUrl?: string): string {
       "Google Generative AI baseUrl must be a valid https URL on generativelanguage.googleapis.com",
     );
   }
-  if (
-    url.protocol !== "https:" ||
-    url.hostname.toLowerCase() !== "generativelanguage.googleapis.com"
-  ) {
+  if (url.protocol !== "https:" || !isTrustedGeminiHostname(url.hostname)) {
     throw new Error(
-      "Google Generative AI baseUrl must use https://generativelanguage.googleapis.com",
+      "Google Generative AI baseUrl must use https://generativelanguage.googleapis.com (or a host listed in OPENCLAW_GEMINI_TRUSTED_HOSTS)",
     );
   }
   return normalized;
