@@ -114,31 +114,53 @@ export async function monitorWebChannel(
   const statusController = createWebChannelStatusController(tuning.statusSink);
   statusController.emit();
 
-  const baseCfg = loadConfig();
+  // Build the WhatsApp-overlay cfg view from a fresh loadConfig() snapshot.
+  // Factored out so we can refresh on every connection cycle (see
+  // createListener below) — the chokidar config-runtime layer hot-reloads
+  // openclaw.json, but the WhatsApp plugin sits behind a noopPrefixes
+  // entry that intentionally skips the plugin reload (so the live
+  // Baileys session isn't torn down on every config change). The
+  // captured `cfg` const here is otherwise frozen at startup, which
+  // means runtime decisions downstream (sender-key resync, applyGroupGating,
+  // command hook, access control) all read stale group/account state on
+  // reconnects. Calling buildCfgSnapshot() inside createListener picks
+  // up the latest rendered config without touching the connection.
+  const buildCfgSnapshot = (): {
+    cfg: ReturnType<typeof loadConfig>;
+    account: ReturnType<typeof resolveWhatsAppAccount>;
+  } => {
+    const liveBaseCfg = loadConfig();
+    const liveAccount = resolveWhatsAppAccount({
+      cfg: liveBaseCfg,
+      accountId: tuning.accountId,
+    });
+    return {
+      cfg: {
+        ...liveBaseCfg,
+        channels: {
+          ...liveBaseCfg.channels,
+          whatsapp: {
+            ...liveBaseCfg.channels?.whatsapp,
+            ackReaction: liveAccount.ackReaction,
+            messagePrefix: liveAccount.messagePrefix,
+            allowFrom: liveAccount.allowFrom,
+            groupAllowFrom: liveAccount.groupAllowFrom,
+            groupPolicy: liveAccount.groupPolicy,
+            textChunkLimit: liveAccount.textChunkLimit,
+            chunkMode: liveAccount.chunkMode,
+            mediaMaxMb: liveAccount.mediaMaxMb,
+            blockStreaming: liveAccount.blockStreaming,
+            groups: liveAccount.groups,
+          },
+        },
+      } satisfies ReturnType<typeof loadConfig>,
+      account: liveAccount,
+    };
+  };
+  const initialSnapshot = buildCfgSnapshot();
   const sourceCfg = getRuntimeConfigSourceSnapshot();
-  const account = resolveWhatsAppAccount({
-    cfg: baseCfg,
-    accountId: tuning.accountId,
-  });
-  const cfg = {
-    ...baseCfg,
-    channels: {
-      ...baseCfg.channels,
-      whatsapp: {
-        ...baseCfg.channels?.whatsapp,
-        ackReaction: account.ackReaction,
-        messagePrefix: account.messagePrefix,
-        allowFrom: account.allowFrom,
-        groupAllowFrom: account.groupAllowFrom,
-        groupPolicy: account.groupPolicy,
-        textChunkLimit: account.textChunkLimit,
-        chunkMode: account.chunkMode,
-        mediaMaxMb: account.mediaMaxMb,
-        blockStreaming: account.blockStreaming,
-        groups: account.groups,
-      },
-    },
-  } satisfies ReturnType<typeof loadConfig>;
+  const account = initialSnapshot.account;
+  const cfg = initialSnapshot.cfg;
 
   const maxMediaBytes = resolveWhatsAppMediaMaxBytes(account);
   const heartbeatSeconds = resolveHeartbeatSeconds(cfg, tuning.heartbeatSeconds);
@@ -230,8 +252,16 @@ export async function monitorWebChannel(
         connection = await controller.openConnection({
           connectionId,
           createListener: async ({ sock, connection }) => {
+            // Refresh cfg from disk for this connection cycle so the
+            // listener picks up groups/accounts added since startup. See
+            // buildCfgSnapshot above for the full rationale (whatsapp
+            // plugin is on the chokidar noopPrefixes list, so the
+            // outer-scope `cfg` const is frozen at startup).
+            const liveSnapshot = buildCfgSnapshot();
+            const liveCfg = liveSnapshot.cfg;
+            const liveAccount = liveSnapshot.account;
             const onMessage = createWebOnMessageHandler({
-              cfg,
+              cfg: liveCfg,
               verbose,
               connectionId,
               maxMediaBytes,
@@ -243,17 +273,17 @@ export async function monitorWebChannel(
               replyResolver: activeReplyResolver,
               replyLogger,
               baseMentionConfig,
-              account,
+              account: liveAccount,
             });
 
             return (await (listenerFactory ?? attachWebInboxToSocket)({
-              cfg,
+              cfg: liveCfg,
               verbose,
-              accountId: account.accountId,
-              authDir: account.authDir,
-              mediaMaxMb: account.mediaMaxMb,
-              selfChatMode: account.selfChatMode,
-              sendReadReceipts: account.sendReadReceipts,
+              accountId: liveAccount.accountId,
+              authDir: liveAccount.authDir,
+              mediaMaxMb: liveAccount.mediaMaxMb,
+              selfChatMode: liveAccount.selfChatMode,
+              sendReadReceipts: liveAccount.sendReadReceipts,
               debounceMs: inboundDebounceMs,
               shouldDebounce,
               socketRef: controller.socketRef,
