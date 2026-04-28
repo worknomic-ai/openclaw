@@ -15,7 +15,12 @@
     "src/plugin-sdk/**/*.ts",
     "src/video-generation/dashscope-compatible.ts",
     "src/video-generation/types.ts",
-    "src/types/**/*.d.ts"
+    "src/types/**/*.d.ts",
+    "extensions/whatsapp/src/inbound/types.ts",
+    "extensions/whatsapp/src/inbound/outbound-hook.ts",
+    "extensions/whatsapp/src/inbound/inbound-event-hook.ts",
+    "extensions/whatsapp/src/inbound/command-hook.ts",
+    "extensions/whatsapp/src/inbound/policy-resolver-hook.ts"
   ],
   "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }
