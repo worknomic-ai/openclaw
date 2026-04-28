@@ -353,6 +353,15 @@ export async function attachWebInboxToSocket(
     groupParticipants?: string[];
     messageTimestampMs?: number;
     access: Awaited<ReturnType<typeof checkInboundAccessControl>>;
+    /**
+     * Set when the pre-gating command hook (./command-hook.ts) returned
+     * `{ handled: false, forceProcess: true }`. Tells the auto-reply
+     * monitor's group-gating step to skip the per-group allowlist
+     * check (so a slash-command's continuation reaches the agent even
+     * before the renderer has re-emitted the new groups map). See
+     * extensions/whatsapp/src/auto-reply/monitor/group-gating.ts.
+     */
+    forceProcess?: boolean;
   };
 
   const normalizeInboundMessage = async (
@@ -417,6 +426,7 @@ export async function attachWebInboxToSocket(
     // throwing) restores the default flow. See command-hook.ts for the
     // full contract.
     const commandHook = getWhatsAppCommandHook();
+    let forceProcess = false;
     if (commandHook) {
       try {
         const result = await commandHook({
@@ -442,6 +452,18 @@ export async function attachWebInboxToSocket(
             `whatsapp command-hook handled message ${id ?? "(no-id)"} for ${remoteJid}; skipping access-control`,
           );
           return null;
+        }
+        // Plugin asked to forward this message to the agent BUT skip
+        // the group-allowlist gate (e.g. slash-command continuation
+        // before the renderer's groups map catches up). Carry the
+        // flag through the normalized result so applyGroupGating can
+        // honor it downstream.
+        if (result?.forceProcess) {
+          forceProcess = true;
+          logWhatsAppVerbose(
+            options.verbose,
+            `whatsapp command-hook requested forceProcess for ${remoteJid}; bypassing group-gating downstream`,
+          );
         }
       } catch (err) {
         // Defensive: a buggy plugin must not break the inbound pipeline.
@@ -485,6 +507,7 @@ export async function attachWebInboxToSocket(
       groupParticipants,
       messageTimestampMs,
       access,
+      ...(forceProcess ? { forceProcess: true } : {}),
     };
   };
 
@@ -728,6 +751,10 @@ export async function attachWebInboxToSocket(
       selfLid: self.lid ?? undefined,
       selfE164: self.e164 ?? undefined,
       fromMe: Boolean(msg.key?.fromMe),
+      // Carry the pre-gating command-hook's forceProcess flag forward
+      // into the WebInboundMsg so applyGroupGating can honor it. See
+      // ./command-hook.ts:WhatsAppCommandHookResult.forceProcess.
+      ...(inbound.forceProcess ? { forceProcess: true } : {}),
       location: enriched.location ?? undefined,
       untrustedStructuredContext: enriched.contactContext
         ? [
