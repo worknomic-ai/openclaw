@@ -46,6 +46,18 @@ export type {
   WhatsAppInboundEvent,
 } from "../../extensions/whatsapp/src/inbound/inbound-event-hook.js";
 
+// Pre-gating command hook — fires from monitor.normalizeInboundMessage
+// BEFORE access-control + mention-detection so plugins can recognize
+// and short-circuit lifecycle/control commands without burning an LLM
+// turn. Returning `{ handled: true }` drops the message from openclaw's
+// pipeline entirely. See inbound/command-hook.ts for the contract.
+export { setWhatsAppCommandHook } from "../../extensions/whatsapp/src/inbound/command-hook.js";
+export type {
+  WhatsAppCommandHook,
+  WhatsAppCommandEvent,
+  WhatsAppCommandHookResult,
+} from "../../extensions/whatsapp/src/inbound/command-hook.js";
+
 // Read the linked WhatsApp identity (E.164 + JID) from the on-disk
 // creds for an accountId. Used by external plugins to surface the
 // real linked number after pair — the listener doesn't expose it

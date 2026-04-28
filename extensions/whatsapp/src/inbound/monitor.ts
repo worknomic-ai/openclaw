@@ -19,6 +19,7 @@ import type { OpenClawConfig } from "../runtime-api.js";
 import { createWaSocket, formatError, getStatusCode, waitForWaConnection } from "../session.js";
 import { resolveJidToE164 } from "../text-runtime.js";
 import { checkInboundAccessControl } from "./access-control.js";
+import { getWhatsAppCommandHook } from "./command-hook.js";
 import {
   claimRecentInboundMessage,
   commitRecentInboundMessage,
@@ -407,6 +408,50 @@ export async function attachWebInboxToSocket(
     const messageTimestampMs = msg.messageTimestamp
       ? Number(msg.messageTimestamp) * 1000
       : undefined;
+
+    // Pre-gating command hook (./command-hook.ts). Gives plugins a chance
+    // to recognize and short-circuit lifecycle / control commands BEFORE
+    // access-control + mention-detection run, so a plugin's command
+    // handler can drop the message from the pipeline (no LLM turn) by
+    // returning `{ handled: true }`. Returning `{ handled: false }` (or
+    // throwing) restores the default flow. See command-hook.ts for the
+    // full contract.
+    const commandHook = getWhatsAppCommandHook();
+    if (commandHook) {
+      try {
+        const result = await commandHook({
+          cfg: options.cfg,
+          accountId: options.accountId,
+          remoteJid,
+          ...(participantJid ? { participantJid } : {}),
+          from,
+          senderE164,
+          selfE164: self.e164 ?? null,
+          isGroup: group,
+          isFromMe: Boolean(msg.key?.fromMe),
+          ...(msg.pushName ? { pushName: msg.pushName } : {}),
+          msg,
+          sock: {
+            sendMessage: (jid: string, content: AnyMessageContent) =>
+              sendTrackedMessage(jid, content),
+          },
+        });
+        if (result?.handled) {
+          logWhatsAppVerbose(
+            options.verbose,
+            `whatsapp command-hook handled message ${id ?? "(no-id)"} for ${remoteJid}; skipping access-control`,
+          );
+          return null;
+        }
+      } catch (err) {
+        // Defensive: a buggy plugin must not break the inbound pipeline.
+        // Log + fall through to normal access-control.
+        logWhatsAppVerbose(
+          options.verbose,
+          `whatsapp command-hook threw; falling through: ${formatError(err)}`,
+        );
+      }
+    }
 
     const access = await checkInboundAccessControl({
       cfg: options.cfg,
