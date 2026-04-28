@@ -109,14 +109,4 @@ export type WebInboundMessage = {
   }>;
   wasMentioned?: boolean;
   isBatched?: boolean;
-  /**
-   * Set when the pre-gating WhatsApp command-hook
-   * (./command-hook.ts:WhatsAppCommandHook) returned
-   * `{ handled: false, forceProcess: true }`. Tells downstream
-   * group-allowlist gating (auto-reply/monitor/group-gating.ts) to
-   * skip the per-group allowlist check for this message — slash-
-   * command continuations need to reach the agent before the
-   * renderer's groups map catches up.
-   */
-  forceProcess?: boolean;
 };

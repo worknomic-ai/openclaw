@@ -107,20 +107,8 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
     params.conversationId,
   );
   if (conversationGroupPolicy.allowlistEnabled && !conversationGroupPolicy.allowed) {
-    // forceProcess bypass: a pre-gating WhatsApp command-hook (see
-    // ../../inbound/command-hook.ts) marked this message as a slash-
-    // command continuation that needs to reach the agent even before
-    // the renderer's groups map catches up to the just-written state.
-    // Without this bypass, /join + /listen would be silently dropped
-    // here on the FIRST invocation in a previously-unlisted group.
-    if (params.msg.forceProcess) {
-      params.logVerbose(
-        `forceProcess bypass: allowing group message ${params.conversationId} despite not being in allowlist`,
-      );
-    } else {
-      params.logVerbose(`Skipping group message ${params.conversationId} (not in allowlist)`);
-      return { shouldProcess: false };
-    }
+    params.logVerbose(`Skipping group message ${params.conversationId} (not in allowlist)`);
+    return { shouldProcess: false };
   }
 
   noteGroupMember(

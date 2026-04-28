@@ -58,6 +58,20 @@ export type {
   WhatsAppCommandHookResult,
 } from "../../extensions/whatsapp/src/inbound/command-hook.js";
 
+// Per-conversation policy resolver — fires inside
+// resolveConversationRequireMention before the config-derived value is
+// returned. Lets a plugin override gating for a specific conversation
+// based on in-memory state (e.g. a /join command applied milliseconds
+// ago, before the rendered config has caught up). See
+// inbound/policy-resolver-hook.ts for the contract and self-eviction
+// pattern.
+export { setWhatsAppConversationPolicyResolver } from "../../extensions/whatsapp/src/inbound/policy-resolver-hook.js";
+export type {
+  WhatsAppConversationPolicyResolver,
+  WhatsAppConversationPolicyEvent,
+  WhatsAppConversationPolicyResult,
+} from "../../extensions/whatsapp/src/inbound/policy-resolver-hook.js";
+
 // Read the linked WhatsApp identity (E.164 + JID) from the on-disk
 // creds for an accountId. Used by external plugins to surface the
 // real linked number after pair — the listener doesn't expose it

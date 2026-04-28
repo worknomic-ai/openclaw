@@ -15,6 +15,7 @@ import {
 } from "openclaw/plugin-sdk/security-runtime";
 import { resolveWhatsAppAccount, type ResolvedWhatsAppAccount } from "./accounts.js";
 import { getSelfIdentity, getSenderIdentity } from "./identity.js";
+import { getWhatsAppConversationPolicyResolver } from "./inbound/policy-resolver-hook.js";
 import type { WebInboundMessage } from "./inbound/types.js";
 import { resolveWhatsAppRuntimeGroupPolicy } from "./runtime-group-policy.js";
 import { isSelfChatMode, normalizeE164 } from "./text-runtime.js";
@@ -130,12 +131,32 @@ export function resolveWhatsAppInboundPolicy(params: {
         groupId: resolveGroupConversationId(conversationId),
         hasGroupAllowFrom: effectiveGroupAllowFrom.length > 0,
       }),
-    resolveConversationRequireMention: (conversationId) =>
-      resolveChannelGroupRequireMention({
+    resolveConversationRequireMention: (conversationId) => {
+      const groupId = resolveGroupConversationId(conversationId);
+      const configRequireMention = resolveChannelGroupRequireMention({
         cfg: resolvedGroupCfg,
         channel: "whatsapp",
-        groupId: resolveGroupConversationId(conversationId),
-      }),
+        groupId,
+      });
+      const resolver = getWhatsAppConversationPolicyResolver();
+      if (!resolver) {
+        return configRequireMention;
+      }
+      try {
+        const override = resolver({
+          cfg: params.cfg,
+          accountId: params.accountId ?? null,
+          conversationId: groupId,
+          configRequireMention,
+        });
+        if (override && typeof override.requireMention === "boolean") {
+          return override.requireMention;
+        }
+      } catch {
+        // Defensive: a buggy resolver must never break gating.
+      }
+      return configRequireMention;
+    },
   };
 }
 

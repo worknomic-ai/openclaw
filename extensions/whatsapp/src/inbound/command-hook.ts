@@ -60,21 +60,6 @@ export interface WhatsAppCommandEvent {
 
 export interface WhatsAppCommandHookResult {
   handled: boolean;
-  /**
-   * When `handled === false` AND `forceProcess === true`, the message
-   * continues through the normal inbound pipeline but with the
-   * group-allowlist gate (applyGroupGating) bypassed for THIS message
-   * only. Use case: a slash-command handler has done its side effect
-   * (DB write, etc.) and wants the agent to generate a contextual
-   * response, but the new state isn't yet reflected in the rendered
-   * config (the renderer's next /vm/config poll picks it up after a
-   * short delay). Without bypass, applyGroupGating drops the message
-   * because the group isn't yet in the configured `groups` map.
-   *
-   * Has no effect when `handled === true` (message is dropped before
-   * gating runs at all).
-   */
-  forceProcess?: boolean;
 }
 
 export type WhatsAppCommandHook = (
