@@ -566,7 +566,50 @@ export function findChromeExecutableLinux(): BrowserExecutable | null {
     { kind: "chromium", path: "/snap/bin/chromium" },
   ];
 
+  // Headless / containerized Linux often has no system browser package
+  // installed, but `playwright-core install chromium` (which this
+  // extension already depends on) drops a self-contained Chromium under
+  // PLAYWRIGHT_BROWSERS_PATH (or `~/.cache/ms-playwright` by default).
+  // Treat that install location as a last-resort candidate so the
+  // extension finds the binary openclaw's own dependency just installed.
+  const playwrightCandidate = findPlaywrightChromiumLinux();
+  if (playwrightCandidate !== null) {
+    candidates.push(playwrightCandidate);
+  }
+
   return findFirstExecutable(candidates);
+}
+
+// Probe the playwright-core browser cache for a chromium install on
+// Linux. Layout is `<browsers-path>/chromium-<rev>/chrome-linux/chrome`.
+// Returns the highest-revision match (lex sort is fine — playwright
+// monotonically increments the integer revision). Never throws — a
+// missing dir or unreadable entry returns null and we fall through to
+// the system-package candidates.
+function findPlaywrightChromiumLinux(): BrowserExecutable | null {
+  const browsersPath =
+    process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(os.homedir(), ".cache", "ms-playwright");
+  let entries: Array<string>;
+  try {
+    entries = fs.readdirSync(browsersPath);
+  } catch {
+    return null;
+  }
+  const chromiumDirs = entries
+    .filter((e) => e.startsWith("chromium-"))
+    .sort()
+    .reverse();
+  for (const dir of chromiumDirs) {
+    const exe = path.join(browsersPath, dir, "chrome-linux", "chrome");
+    try {
+      if (fs.statSync(exe).isFile()) {
+        return { kind: "chromium", path: exe };
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+  return null;
 }
 
 export function findGoogleChromeExecutableLinux(): BrowserExecutable | null {
