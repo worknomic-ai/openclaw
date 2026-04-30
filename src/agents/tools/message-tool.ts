@@ -16,6 +16,7 @@ import { resolveMessageSecretScope } from "../../cli/message-secret-scope.js";
 import { loadConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "../../gateway/protocol/client-info.js";
+import { buildChannelTargetDescription } from "../../infra/outbound/channel-target.js";
 import { getToolResult, runMessageAction } from "../../infra/outbound/message-action-runner.js";
 import { POLL_CREATION_PARAM_DEFS, SHARED_POLL_CREATION_PARAM_NAMES } from "../../poll-params.js";
 import { normalizeAccountId } from "../../routing/session-key.js";
@@ -45,10 +46,14 @@ const EXPLICIT_TARGET_ACTIONS = new Set<ChannelMessageActionName>([
 function actionNeedsExplicitTarget(action: ChannelMessageActionName): boolean {
   return EXPLICIT_TARGET_ACTIONS.has(action);
 }
-function buildRoutingSchema() {
+function buildRoutingSchema(options?: { currentChannel?: string }) {
   return {
     channel: Type.Optional(Type.String()),
-    target: Type.Optional(channelTargetSchema({ description: "Target channel/user id or name." })),
+    target: Type.Optional(
+      channelTargetSchema({
+        description: buildChannelTargetDescription(options?.currentChannel),
+      }),
+    ),
     targets: Type.Optional(channelTargetsSchema()),
     accountId: Type.Optional(Type.String()),
     dryRun: Type.Optional(Type.Boolean()),
@@ -381,9 +386,10 @@ function buildMessageToolSchemaProps(options: {
   includePresentation: boolean;
   includeDeliveryPin: boolean;
   extraProperties?: Record<string, TSchema>;
+  currentChannel?: string;
 }) {
   return {
-    ...buildRoutingSchema(),
+    ...buildRoutingSchema({ currentChannel: options.currentChannel }),
     ...buildSendSchema(options),
     ...buildReactionSchema(),
     ...buildFetchSchema(),
@@ -406,6 +412,7 @@ function buildMessageToolSchemaFromActions(
     includePresentation: boolean;
     includeDeliveryPin: boolean;
     extraProperties?: Record<string, TSchema>;
+    currentChannel?: string;
   },
 ) {
   const props = buildMessageToolSchemaProps(options);
@@ -534,16 +541,15 @@ function buildMessageToolSchema(params: MessageToolDiscoveryParams) {
   const actions = resolveMessageToolSchemaActions(params);
   const includePresentation = resolveIncludePresentation(params);
   const includeDeliveryPin = resolveIncludeDeliveryPin(params);
+  const currentChannel = normalizeMessageChannel(params.currentChannelProvider) ?? undefined;
   const extraProperties = resolveChannelMessageToolSchemaProperties(
-    buildMessageActionDiscoveryInput(
-      params,
-      normalizeMessageChannel(params.currentChannelProvider) ?? undefined,
-    ),
+    buildMessageActionDiscoveryInput(params, currentChannel),
   );
   return buildMessageToolSchemaFromActions(actions.length > 0 ? actions : ["send"], {
     includePresentation,
     includeDeliveryPin,
     extraProperties,
+    currentChannel,
   });
 }
 

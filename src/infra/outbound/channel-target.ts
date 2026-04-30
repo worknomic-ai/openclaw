@@ -1,3 +1,4 @@
+import { getChannelPlugin } from "../../channels/plugins/registry.js";
 import {
   hasNonEmptyString as sharedHasNonEmptyString,
   normalizeOptionalString,
@@ -6,11 +7,30 @@ import { MESSAGE_ACTION_TARGET_MODE } from "./message-action-spec.js";
 
 export const hasNonEmptyString = sharedHasNonEmptyString;
 
+// Identifiers only — never human-readable names. The previous "or name" phrasing
+// nudged models to grab group_subject / contact display name from prompt
+// metadata, which the per-channel target resolvers reject. Per-channel hints
+// are appended via buildChannelTargetDescription() when a current channel is
+// known so the model sees the exact accepted shape upfront.
 export const CHANNEL_TARGET_DESCRIPTION =
-  "Recipient/channel: E.164 for WhatsApp/Signal, Telegram chat id/@username, Discord/Slack channel/user, or iMessage handle/chat_id";
+  "Recipient identifier: E.164 for WhatsApp/Signal, Telegram chat id/@username, Discord/Slack channel/user id, iMessage handle/chat_id, or email address. Must be an exact identifier — display names, group subjects, and contact aliases are not accepted.";
 
 export const CHANNEL_TARGETS_DESCRIPTION =
-  "Recipient/channel targets (same format as --target); accepts ids or names when the directory is available.";
+  "Recipient identifiers (same format as --target); display names and aliases are not accepted — use ids the channel's target resolver returned previously.";
+
+/**
+ * Build a target-field description scoped to a known channel. When a channel
+ * plugin exposes a `messaging.targetResolver.hint`, embed it directly so the
+ * model sees the accepted shape (e.g. `<E.164|group JID>`) before making a
+ * call instead of discovering it via an `Unknown target` error after.
+ */
+export function buildChannelTargetDescription(channelId?: string): string {
+  if (!channelId) return CHANNEL_TARGET_DESCRIPTION;
+  const plugin = getChannelPlugin(channelId);
+  const hint = plugin?.messaging?.targetResolver?.hint;
+  if (!hint) return CHANNEL_TARGET_DESCRIPTION;
+  return `Recipient identifier for ${channelId}: ${hint}. Must be an exact identifier — display names, group subjects, and contact aliases are not accepted.`;
+}
 
 export function applyTargetToParams(params: {
   action: string;
