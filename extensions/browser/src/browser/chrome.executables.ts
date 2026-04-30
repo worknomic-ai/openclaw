@@ -581,11 +581,15 @@ export function findChromeExecutableLinux(): BrowserExecutable | null {
 }
 
 // Probe the playwright-core browser cache for a chromium install on
-// Linux. Layout is `<browsers-path>/chromium-<rev>/chrome-linux/chrome`.
-// Returns the highest-revision match (lex sort is fine — playwright
-// monotonically increments the integer revision). Never throws — a
-// missing dir or unreadable entry returns null and we fall through to
-// the system-package candidates.
+// Linux. Layout is `<browsers-path>/chromium-<rev>/<arch-dir>/chrome`,
+// where `<arch-dir>` varies by playwright version + host architecture:
+// `chrome-linux` (legacy), `chrome-linux64` (modern x86_64),
+// `chrome-linux-arm64` (ARM). Scan rather than hardcode so future
+// playwright layout shifts don't silently revert us to "no browser
+// found". Returns the highest-revision match (lex sort is fine —
+// playwright monotonically increments the integer revision). Never
+// throws — a missing dir or unreadable entry returns null and we fall
+// through to the system-package candidates.
 function findPlaywrightChromiumLinux(): BrowserExecutable | null {
   const browsersPath =
     process.env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(os.homedir(), ".cache", "ms-playwright");
@@ -600,7 +604,17 @@ function findPlaywrightChromiumLinux(): BrowserExecutable | null {
     .sort()
     .reverse();
   for (const dir of chromiumDirs) {
-    const exe = path.join(browsersPath, dir, "chrome-linux", "chrome");
+    let inner: Array<string>;
+    try {
+      inner = fs.readdirSync(path.join(browsersPath, dir));
+    } catch {
+      continue;
+    }
+    const archDir = inner.find((e) => /^chrome-linux/.test(e));
+    if (!archDir) {
+      continue;
+    }
+    const exe = path.join(browsersPath, dir, archDir, "chrome");
     try {
       if (fs.statSync(exe).isFile()) {
         return { kind: "chromium", path: exe };

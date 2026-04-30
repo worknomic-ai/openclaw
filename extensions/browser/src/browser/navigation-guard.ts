@@ -113,7 +113,18 @@ export async function assertBrowserNavigationAllowed(
   // can bypass strict destination-binding intent from pre-navigation DNS checks.
   // In strict mode, fail closed unless private-network navigation is explicitly
   // enabled by policy.
-  if (hasProxyEnvConfigured() && !isPrivateNetworkAllowedByPolicy(opts.ssrfPolicy)) {
+  //
+  // Hosted deployments that pin Chromium's proxy via `--proxy-server=...`
+  // (browser launch arg, configured in browser.extraArgs) can opt out of this
+  // check by setting OPENCLAW_BROWSER_ALLOW_ENV_PROXY=1 — in that mode the
+  // proxy is enforced at the browser network stack, so Node's env proxy is not
+  // load-bearing for navigation safety.
+  const trustEnvProxy = process.env.OPENCLAW_BROWSER_ALLOW_ENV_PROXY === "1";
+  if (
+    hasProxyEnvConfigured() &&
+    !trustEnvProxy &&
+    !isPrivateNetworkAllowedByPolicy(opts.ssrfPolicy)
+  ) {
     throw new InvalidBrowserNavigationUrlError(
       "Navigation blocked: strict browser SSRF policy cannot be enforced while env proxy variables are set",
     );
