@@ -332,6 +332,19 @@ export const ToolsWebSearchSchema = z
       })
       .strict()
       .optional(),
+    // Gemini-specific block. Read by extensions/google/src/gemini-web-search-provider
+    // when `tools.web.search.provider === "gemini"`. Declared here so the
+    // strict() outer schema accepts it. baseUrl is a Clawsy soft-fork
+    // addition (see the same provider runtime) gated by the existing
+    // OPENCLAW_GEMINI_TRUSTED_HOSTS allowlist on the validation side.
+    gemini: z
+      .object({
+        apiKey: SecretInputSchema.optional().register(sensitive),
+        model: z.string().optional(),
+        baseUrl: z.string().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .optional();
