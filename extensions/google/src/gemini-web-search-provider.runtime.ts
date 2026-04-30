@@ -20,14 +20,31 @@ import {
   wrapWebContent,
   writeCachedSearchPayload,
 } from "openclaw/plugin-sdk/provider-web-search";
-import { DEFAULT_GOOGLE_API_BASE_URL } from "../api.js";
+import { DEFAULT_GOOGLE_API_BASE_URL, resolveTrustedGoogleGenerativeAiBaseUrl } from "../api.js";
 import {
+  resolveGeminiBaseUrl,
   resolveGeminiConfig,
   resolveGeminiModel,
   type GeminiConfig,
 } from "./gemini-web-search-provider.shared.js";
 
 const GEMINI_API_BASE = DEFAULT_GOOGLE_API_BASE_URL;
+
+// Resolve the API base for a single web_search call. When the agent's
+// rendered config sets `tools.web.search.gemini.baseUrl`, route through
+// that host (validated by the shared trust gate so OPENCLAW_GEMINI_TRUSTED_HOSTS
+// applies). Falls back to the hardcoded default for self-hosted /
+// API-key-direct setups that don't run a proxy. A throw from the trust
+// gate (unknown host, http://, malformed) surfaces as a clean caller-side
+// error message; we don't silently fall back, since that would mask a
+// misconfigured proxy.
+function resolveSearchApiBase(gemini?: GeminiConfig): string {
+  const configured = resolveGeminiBaseUrl(gemini);
+  if (!configured) {
+    return GEMINI_API_BASE;
+  }
+  return resolveTrustedGoogleGenerativeAiBaseUrl(configured);
+}
 
 type GeminiGroundingResponse = {
   candidates?: Array<{
@@ -63,9 +80,10 @@ async function runGeminiSearch(params: {
   query: string;
   apiKey: string;
   model: string;
+  apiBase: string;
   timeoutSeconds: number;
 }): Promise<{ content: string; citations: Array<{ url: string; title?: string }> }> {
-  const endpoint = `${GEMINI_API_BASE}/models/${params.model}:generateContent`;
+  const endpoint = `${params.apiBase}/models/${params.model}:generateContent`;
 
   return withTrustedWebSearchEndpoint(
     {
@@ -173,10 +191,12 @@ export async function executeGeminiSearch(
   }
 
   const start = Date.now();
+  const apiBase = resolveSearchApiBase(geminiConfig);
   const result = await runGeminiSearch({
     query,
     apiKey,
     model,
+    apiBase,
     timeoutSeconds: resolveSearchTimeoutSeconds(searchConfig),
   });
   const payload = {

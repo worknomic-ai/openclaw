@@ -32,4 +32,17 @@ describe("google web search provider", () => {
     expect(__testing.resolveGeminiModel()).toBe("gemini-2.5-flash");
     expect(__testing.resolveGeminiModel({ model: "  gemini-2.5-pro  " })).toBe("gemini-2.5-pro");
   });
+
+  it("returns undefined when no baseUrl is configured", () => {
+    expect(__testing.resolveGeminiBaseUrl()).toBeUndefined();
+    expect(__testing.resolveGeminiBaseUrl({})).toBeUndefined();
+    expect(__testing.resolveGeminiBaseUrl({ baseUrl: "" })).toBeUndefined();
+    expect(__testing.resolveGeminiBaseUrl({ baseUrl: "   " })).toBeUndefined();
+  });
+
+  it("trims and returns a configured baseUrl override", () => {
+    expect(__testing.resolveGeminiBaseUrl({ baseUrl: "  https://my-proxy.example/v1beta  " })).toBe(
+      "https://my-proxy.example/v1beta",
+    );
+  });
 });

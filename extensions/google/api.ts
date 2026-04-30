@@ -66,7 +66,14 @@ function isTrustedGeminiHostname(hostname: string): boolean {
   return extra.includes(lower);
 }
 
-function resolveTrustedGoogleGenerativeAiBaseUrl(baseUrl?: string): string {
+// Exported so the gemini-web-search-provider runtime (and any other
+// gemini-shape sub-extension) can route its endpoint through the same
+// trust gate as the main image/audio/video transport. Same env-var
+// allowlist (OPENCLAW_GEMINI_TRUSTED_HOSTS) governs all paths so there's
+// only one place to whitelist a self-hosted proxy. Original Clawsy fork
+// patch added the allowlist for image/audio/video; widening the export
+// surface lets web_search join without duplicating the trust logic.
+export function resolveTrustedGoogleGenerativeAiBaseUrl(baseUrl?: string): string {
   const normalized =
     normalizeGoogleGenerativeAiBaseUrl(baseUrl ?? DEFAULT_GOOGLE_API_BASE_URL) ??
     DEFAULT_GOOGLE_API_BASE_URL;

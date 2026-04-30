@@ -5,7 +5,11 @@ import {
   type WebSearchProviderPlugin,
   type WebSearchProviderToolDefinition,
 } from "openclaw/plugin-sdk/provider-web-search-config-contract";
-import { resolveGeminiApiKey, resolveGeminiModel } from "./gemini-web-search-provider.shared.js";
+import {
+  resolveGeminiApiKey,
+  resolveGeminiBaseUrl,
+  resolveGeminiModel,
+} from "./gemini-web-search-provider.shared.js";
 
 const GEMINI_CREDENTIAL_PATH = "plugins.entries.google.config.webSearch.apiKey";
 
@@ -83,4 +87,5 @@ export function createGeminiWebSearchProvider(): WebSearchProviderPlugin {
 export const __testing = {
   resolveGeminiApiKey,
   resolveGeminiModel,
+  resolveGeminiBaseUrl,
 } as const;
