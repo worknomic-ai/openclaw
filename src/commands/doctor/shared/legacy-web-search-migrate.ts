@@ -16,7 +16,16 @@ const MODERN_SCOPED_WEB_SEARCH_KEYS = new Set(["openaiCodex"]);
 
 // Tavily only ever used the plugin-owned config path, so there is no legacy
 // `tools.web.search.tavily.*` shape to migrate.
-const NON_MIGRATED_LEGACY_WEB_SEARCH_PROVIDER_IDS = new Set(["tavily"]);
+//
+// Gemini supports a runtime `tools.web.search.gemini.baseUrl` override that
+// hosting environments (Clawsy specifically) use to route web_search through
+// a central LLM gateway. Migrating that into `plugins.entries.google.config.
+// webSearch.baseUrl` would (a) lose the runtime resolveGeminiConfig read path
+// since it pulls from `tools.web.search.gemini`, and (b) trip the google
+// plugin's strict configSchema which only allows webSearch.{apiKey,model} —
+// any host setting baseUrl would have its config rejected at load. Skip
+// migration; runtime reads directly.
+const NON_MIGRATED_LEGACY_WEB_SEARCH_PROVIDER_IDS = new Set(["tavily", "gemini"]);
 const LEGACY_GLOBAL_WEB_SEARCH_PROVIDER_ID = "brave";
 let legacyWebSearchProviderIdsCache: string[] | undefined;
 let legacyWebSearchProviderIdSetCache: Set<string> | undefined;

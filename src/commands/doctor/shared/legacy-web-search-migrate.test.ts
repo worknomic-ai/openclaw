@@ -129,4 +129,32 @@ describe("legacy web search config", () => {
       "Moved tools.web.search.brave → plugins.entries.brave.config.webSearch.",
     ]);
   });
+
+  it("leaves tools.web.search.gemini in place (runtime-config path, not legacy)", () => {
+    const res = migrateLegacyWebSearchConfig<OpenClawConfig>({
+      tools: {
+        web: {
+          search: {
+            provider: "gemini",
+            gemini: {
+              apiKey: "gemini-key",
+              model: "gemini-2.5-flash",
+              baseUrl: "https://example.test/api/v1/llm/gemini/v1beta",
+            },
+          },
+        },
+      },
+    });
+
+    expect(res.changes).toEqual([]);
+    expect(res.config.tools?.web?.search).toEqual({
+      provider: "gemini",
+      gemini: {
+        apiKey: "gemini-key",
+        model: "gemini-2.5-flash",
+        baseUrl: "https://example.test/api/v1/llm/gemini/v1beta",
+      },
+    });
+    expect(res.config.plugins?.entries?.google).toBeUndefined();
+  });
 });
