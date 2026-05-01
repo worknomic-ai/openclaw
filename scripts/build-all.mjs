@@ -29,7 +29,11 @@ export const BUILD_ALL_STEPS = [
         "src/video-generation/dashscope-compatible.ts",
         "src/video-generation/types.ts",
       ],
-      outputs: ["dist/plugin-sdk/.tsbuildinfo", "dist/plugin-sdk/src"],
+      outputs: [
+        "dist/plugin-sdk/.tsbuildinfo",
+        "dist/plugin-sdk/src",
+        "dist/plugin-sdk/extensions",
+      ],
     },
   },
   {
