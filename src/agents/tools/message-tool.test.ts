@@ -589,13 +589,19 @@ describe("message tool schema scoping", () => {
       ]),
     );
 
+    // Provide cfg.channels.telegram.accounts so telegram is treated as
+    // runtime-configured (not just plugin-declared). Without this the
+    // description filter hides it regardless of account-scoped discovery.
+    const cfg = {
+      channels: { telegram: { accounts: { ops: {} } } },
+    } as never;
     const scopedTool = createMessageTool({
-      config: {} as never,
+      config: cfg,
       currentChannelProvider: "discord",
       agentAccountId: "ops",
     });
     const unscopedTool = createMessageTool({
-      config: {} as never,
+      config: cfg,
       currentChannelProvider: "discord",
     });
 
@@ -790,8 +796,13 @@ describe("message tool description", () => {
       ]),
     );
 
+    // The "Other configured channels" listing now requires runtime accounts
+    // in cfg.channels (not just a registered plugin). Provide a minimal
+    // config so the loop sees telegram as user-configured.
     const tool = createMessageTool({
-      config: {} as never,
+      config: {
+        channels: { telegram: { accounts: { default: {} } } },
+      } as never,
       currentChannelProvider: "signal",
     });
 
@@ -800,6 +811,47 @@ describe("message tool description", () => {
     // Other configured channels are also listed
     expect(tool.description).toContain("Other configured channels:");
     expect(tool.description).toContain("telegram (delete, edit, react, send, topic-create)");
+  });
+
+  it("does NOT advertise channels that are loaded as plugins but have no configured accounts", () => {
+    // Regression guard for the dead-channel bug: clawsy-whatsapp / clawsy-sms
+    // are plugin-declared but operationally dark on most user VMs (no
+    // accounts configured). Without this filter, the LLM would pick them
+    // and the message tool failed at send time with "Unknown <channel>
+    // account <default>". The description should hide them.
+    const signalPlugin = createChannelPlugin({
+      id: "signal",
+      label: "Signal",
+      docsPath: "/channels/signal",
+      blurb: "Signal test plugin.",
+      actions: ["send", "react"],
+    });
+    const deadPlugin = createChannelPlugin({
+      id: "telegram",
+      label: "Telegram",
+      docsPath: "/channels/telegram",
+      blurb: "Telegram registered-but-unconfigured plugin.",
+      actions: ["send"],
+    });
+
+    setActivePluginRegistry(
+      createTestRegistry([
+        { pluginId: "signal", source: "test", plugin: signalPlugin },
+        { pluginId: "telegram", source: "test", plugin: deadPlugin },
+      ]),
+    );
+
+    // signal IS configured (has accounts); telegram is NOT (manifest-only).
+    const tool = createMessageTool({
+      config: {
+        channels: { signal: { accounts: { default: {} } } },
+      } as never,
+      currentChannelProvider: "signal",
+    });
+
+    expect(tool.description).toContain("Current channel (signal) supports:");
+    expect(tool.description).not.toContain("Other configured channels:");
+    expect(tool.description).not.toContain("telegram");
   });
 
   it("does not advertise cross-channel actions whose params are hidden by current-channel schema", () => {

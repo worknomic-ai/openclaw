@@ -604,10 +604,20 @@ function buildMessageToolDescription(options?: {
       const actionList = Array.from(allActions).toSorted().join(", ");
       let desc = `${baseDescription} Current channel (${currentChannel}) supports: ${actionList}.`;
 
-      // Include other configured channels so cron/isolated agents can discover them
+      // Include other RUNTIME-CONFIGURED channels so cron/isolated agents can
+      // discover them, but DO NOT advertise channels the plugin merely
+      // *declares* (manifest-level) without an actual user-configured account.
+      // Without this filter, the LLM has been picking declared-but-dead
+      // channels (e.g. clawsy-whatsapp when the live WhatsApp is the
+      // baileys-backed `whatsapp` channel) and the message tool only fails
+      // at send time with "Unknown <channel> account <default>". Tightening
+      // the description tightens the agent's choice space.
       const otherChannels: string[] = [];
       for (const plugin of listChannelPlugins()) {
         if (plugin.id === currentChannel) {
+          continue;
+        }
+        if (!hasConfiguredAccount(resolvedOptions.config, plugin.id)) {
           continue;
         }
         const actions = listCrossChannelSchemaSupportedMessageActions(
@@ -620,6 +630,17 @@ function buildMessageToolDescription(options?: {
       }
       if (otherChannels.length > 0) {
         desc += ` Other configured channels: ${otherChannels.join(", ")}.`;
+        // If a send errors out because the channel adapter rejects it
+        // (e.g. unknown account, disconnected provider, expired token),
+        // try ONE of the listed alternatives before giving up. Don't
+        // retry on validation errors, missing target, or LLM-side
+        // mistakes — only on adapter-level "channel unavailable" / "no
+        // accounts" surfaces. Cap at one fallback attempt so a global
+        // outage doesn't fan out into every channel.
+        desc +=
+          " If a send fails with a channel-availability error (e.g." +
+          " unknown account, provider disconnected), retry the send" +
+          " ONCE on a different listed channel before reporting failure.";
       }
 
       return appendMessageToolReadHint(
@@ -641,6 +662,32 @@ function buildMessageToolDescription(options?: {
   }
 
   return `${baseDescription} Supports actions: send, delete, react, poll, pin, threads, and more.`;
+}
+
+// Returns true when the user's openclaw config has at least one configured
+// account for `channelId`. We treat "configured" as the channel section
+// existing on cfg.channels AND its `accounts` map having at least one entry.
+// Channels that exist in the plugin manifest (and therefore in the loaded
+// channel-plugin registry) but have no user-side accounts are considered
+// declared-but-dead — they belong in setup wizards, not in the LLM's tool
+// description.
+function hasConfiguredAccount(cfg: OpenClawConfig | undefined, channelId: string): boolean {
+  if (!cfg) {
+    return false;
+  }
+  const channels = (cfg as { channels?: Record<string, unknown> }).channels;
+  if (!channels || typeof channels !== "object") {
+    return false;
+  }
+  const section = channels[channelId];
+  if (!section || typeof section !== "object") {
+    return false;
+  }
+  const accounts = (section as { accounts?: Record<string, unknown> }).accounts;
+  if (!accounts || typeof accounts !== "object") {
+    return false;
+  }
+  return Object.keys(accounts).length > 0;
 }
 
 function appendMessageToolReadHint(
