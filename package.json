@@ -209,6 +209,10 @@
       "types": "./dist/plugin-sdk/agent-media-payload.d.ts",
       "default": "./dist/plugin-sdk/agent-media-payload.js"
     },
+    "./plugin-sdk/cron-runtime": {
+      "types": "./dist/plugin-sdk/cron-runtime.d.ts",
+      "default": "./dist/plugin-sdk/cron-runtime.js"
+    },
     "./plugin-sdk/inbound-reply-dispatch": {
       "types": "./dist/plugin-sdk/inbound-reply-dispatch.d.ts",
       "default": "./dist/plugin-sdk/inbound-reply-dispatch.js"

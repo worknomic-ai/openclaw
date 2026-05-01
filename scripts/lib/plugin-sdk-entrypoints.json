@@ -38,6 +38,7 @@
   "reply-chunking",
   "reply-payload",
   "agent-media-payload",
+  "cron-runtime",
   "inbound-reply-dispatch",
   "inbound-envelope",
   "channel-reply-pipeline",

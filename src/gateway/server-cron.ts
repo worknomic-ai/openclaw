@@ -22,6 +22,7 @@ import {
   resolveCronRunLogPath,
   resolveCronRunLogPruneOptions,
 } from "../cron/run-log.js";
+import { setCronServiceForRuntime } from "../cron/runtime-registry.js";
 import { CronService } from "../cron/service.js";
 import { assertSafeCronSessionTargetId } from "../cron/session-target.js";
 import { resolveCronStorePath } from "../cron/store.js";
@@ -579,6 +580,13 @@ export function buildGatewayCronService(params: {
       }
     },
   });
+
+  // Register the constructed CronService in the module-level runtime
+  // registry so plugins (loaded via openclaw/plugin-sdk/cron-runtime)
+  // can call cron CRUD ops directly without going through the gateway
+  // RPC layer. The provisioner-side Clawsy plugin uses this for its
+  // schedule_* tools (designs/proactive-activation-routing.md §B).
+  setCronServiceForRuntime(cron);
 
   return { cron, storePath, cronEnabled };
 }
