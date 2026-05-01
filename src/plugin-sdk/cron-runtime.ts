@@ -47,3 +47,14 @@ export type {
   CronSchedule,
   CronSessionTarget,
 } from "../cron/types.js";
+
+// Plugin-routed cron jobs: a plugin registers a handler for jobs whose
+// `sessionTarget` is `plugin:<pluginId>`. CronService dispatches firing
+// jobs to that handler instead of the built-in main/isolated lanes.
+// See: src/cron/plugin-handlers.ts.
+export { registerCronJobHandler } from "../cron/plugin-handlers.js";
+export type {
+  CronJobHandler,
+  CronJobHandlerParams,
+  CronJobHandlerResult,
+} from "../cron/plugin-handlers.js";

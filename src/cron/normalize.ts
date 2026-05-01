@@ -13,7 +13,10 @@ import {
 } from "./delivery-field-schemas.js";
 import { parseAbsoluteTimeMs } from "./parse.js";
 import { inferLegacyName } from "./service/normalize.js";
-import { assertSafeCronSessionTargetId } from "./session-target.js";
+import {
+  assertSafeCronSessionTargetId,
+  assertSafeCronSessionTargetPluginId,
+} from "./session-target.js";
 import { normalizeCronStaggerMs, resolveDefaultCronStaggerMs } from "./stagger.js";
 import type { CronJobCreate, CronJobPatch } from "./types.js";
 
@@ -328,6 +331,12 @@ function normalizeSessionTarget(raw: unknown) {
   // Support custom session IDs with "session:" prefix
   if (lower.startsWith("session:")) {
     return `session:${assertSafeCronSessionTargetId(trimmed.slice(8))}`;
+  }
+  // Support plugin-routed jobs with "plugin:<pluginId>" prefix. The plugin
+  // registers a handler via the plugin SDK; CronService dispatches firing
+  // jobs to that handler instead of the built-in main/isolated lanes.
+  if (lower.startsWith("plugin:")) {
+    return `plugin:${assertSafeCronSessionTargetPluginId(trimmed.slice(7))}`;
   }
   return undefined;
 }

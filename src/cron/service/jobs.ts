@@ -10,7 +10,10 @@ import {
   computeNextRunAtMs,
   computePreviousRunAtMs,
 } from "../schedule.js";
-import { assertSafeCronSessionTargetId } from "../session-target.js";
+import {
+  assertSafeCronSessionTargetId,
+  assertSafeCronSessionTargetPluginId,
+} from "../session-target.js";
 import {
   normalizeCronStaggerMs,
   resolveCronStaggerMs,
@@ -158,8 +161,12 @@ export function assertSupportedJobSpec(job: Pick<CronJob, "sessionTarget" | "pay
     job.sessionTarget === "isolated" ||
     job.sessionTarget === "current" ||
     job.sessionTarget.startsWith("session:");
+  const isPluginRouted = job.sessionTarget.startsWith("plugin:");
   if (job.sessionTarget.startsWith("session:")) {
     assertSafeCronSessionTargetId(job.sessionTarget.slice(8));
+  }
+  if (isPluginRouted) {
+    assertSafeCronSessionTargetPluginId(job.sessionTarget.slice(7));
   }
   if (job.sessionTarget === "main" && job.payload.kind !== "systemEvent") {
     throw new Error('main cron jobs require payload.kind="systemEvent"');
@@ -167,6 +174,8 @@ export function assertSupportedJobSpec(job: Pick<CronJob, "sessionTarget" | "pay
   if (isIsolatedLike && job.payload.kind !== "agentTurn") {
     throw new Error('isolated/current/session cron jobs require payload.kind="agentTurn"');
   }
+  // Plugin-routed jobs accept any payload kind. The registered handler is
+  // responsible for interpreting the payload.
 }
 
 function assertMainSessionAgentId(

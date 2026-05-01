@@ -10,6 +10,7 @@ import {
 } from "../../tasks/detached-task-runtime.js";
 import { clearCronJobActive, markCronJobActive } from "../active-jobs.js";
 import { resolveCronDeliveryPlan } from "../delivery-plan.js";
+import { getCronJobHandler } from "../plugin-handlers.js";
 import { createCronExecutionId } from "../run-id.js";
 import { sweepCronRunSessions } from "../session-reaper.js";
 import type {
@@ -1174,8 +1175,59 @@ export async function executeJobCore(
   if (job.sessionTarget === "main") {
     return await executeMainSessionCronJob(state, job, abortSignal, waitWithAbort);
   }
+  if (job.sessionTarget.startsWith("plugin:")) {
+    return await executePluginRoutedCronJob(state, job, abortSignal, resolveAbortError);
+  }
 
   return await executeDetachedCronJob(state, job, abortSignal, resolveAbortError);
+}
+
+async function executePluginRoutedCronJob(
+  state: CronServiceState,
+  job: CronJob,
+  abortSignal: AbortSignal | undefined,
+  resolveAbortError: () => { status: "error"; error: string },
+): Promise<
+  CronRunOutcome &
+    CronRunTelemetry & {
+      delivered?: boolean;
+      deliveryAttempted?: boolean;
+      delivery?: CronDeliveryTrace;
+    }
+> {
+  if (abortSignal?.aborted) {
+    return resolveAbortError();
+  }
+  const pluginId = job.sessionTarget.slice("plugin:".length);
+  const handler = getCronJobHandler(pluginId);
+  if (!handler) {
+    return {
+      status: "skipped",
+      error: `no cron job handler registered for plugin "${pluginId}"`,
+    };
+  }
+  let res: Awaited<ReturnType<typeof handler>>;
+  try {
+    res = await handler({ pluginId, job, abortSignal });
+  } catch (err) {
+    return { status: "error", error: String(err) };
+  }
+  if (abortSignal?.aborted) {
+    return { status: "error", error: timeoutErrorMessage() };
+  }
+  return {
+    status: res.status,
+    error: res.error,
+    summary: res.summary,
+    delivered: res.delivered,
+    deliveryAttempted: res.deliveryAttempted,
+    delivery: res.delivery,
+    sessionId: res.sessionId,
+    sessionKey: res.sessionKey,
+    model: res.model,
+    provider: res.provider,
+    usage: res.usage,
+  };
 }
 
 async function executeMainSessionCronJob(
