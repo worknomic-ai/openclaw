@@ -115,15 +115,6 @@ export function buildOpenClawChromeLaunchArgs(params: {
     "--disable-sync",
     "--disable-background-networking",
     "--disable-component-update",
-    // The "AutomationControlled" blink feature is what causes
-    // navigator.webdriver to surface as `true` on initial page parse —
-    // before any JS runs, so document-init evasions can't catch it in
-    // time for early-firing detection scripts. Disabling the feature
-    // at launch removes the C++-level telltale; the JS-side override
-    // in stealth-evasions.ts is the safety net for code that re-checks
-    // navigator.webdriver later. Both are needed for the canonical
-    // bot.sannysoft.com / DataDome-class detection to read clean.
-    "--disable-blink-features=AutomationControlled",
     "--disable-features=Translate,MediaRouter",
     "--disable-session-crashed-bubble",
     "--hide-crash-restore-bubble",

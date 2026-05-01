@@ -31,7 +31,6 @@ import {
   withBrowserNavigationPolicy,
 } from "./navigation-guard.js";
 import { withPageScopedCdpClient } from "./pw-session.page-cdp.js";
-import { STEALTH_EVASIONS_SCRIPT } from "./stealth-evasions.js";
 
 export type BrowserConsoleMessage = {
   type: string;
@@ -396,14 +395,6 @@ function observeContext(context: BrowserContext) {
   }
   observedContexts.add(context);
   ensureContextState(context);
-
-  // Apply stealth evasions to every page created in this context. The
-  // init script runs before any page-level JS, so document-init detection
-  // (typeof navigator.webdriver, !!window.chrome.runtime, etc.) reads
-  // clean. Best-effort — if the context is already closing, the rejected
-  // promise is fine to swallow; the rest of the observation pipeline
-  // keeps going.
-  context.addInitScript({ content: STEALTH_EVASIONS_SCRIPT }).catch(() => {});
 
   for (const page of context.pages()) {
     ensurePageState(page);
