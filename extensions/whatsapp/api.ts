@@ -20,6 +20,7 @@ export {
   looksLikeWhatsAppTargetId,
   normalizeWhatsAppMessagingTarget,
   normalizeWhatsAppTarget,
+  validateWhatsAppTargetShape,
 } from "./src/normalize-target.js";
 export {
   resolveWhatsAppGroupRequireMention,

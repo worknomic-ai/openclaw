@@ -36,6 +36,7 @@ export {
   normalizeWhatsAppAllowFromEntries,
   normalizeWhatsAppMessagingTarget,
   normalizeWhatsAppTarget,
+  validateWhatsAppTargetShape,
 } from "./normalize-target.js";
 export { resolveWhatsAppOutboundTarget } from "./resolve-outbound-target.js";
 export { resolveWhatsAppReactionLevel } from "./reaction-level.js";
