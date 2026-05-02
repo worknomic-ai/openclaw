@@ -5,4 +5,5 @@ export {
   isWhatsAppGroupJid,
   isWhatsAppUserTarget,
   normalizeWhatsAppTarget,
+  validateWhatsAppTargetShape,
 } from "./normalize-target.js";
