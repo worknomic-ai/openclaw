@@ -1,8 +1,10 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import type { EmbeddedPiExecutionContract } from "../../../config/types.agent-defaults.js";
 import { normalizeLowercaseStringOrEmpty } from "../../../shared/string-coerce.js";
 import { isStrictAgenticSupportedProviderModel } from "../../execution-contract.js";
+import { extractAssistantVisibleText } from "../../pi-embedded-utils.js";
 import { isLikelyMutatingToolName } from "../../tool-mutation.js";
 import { assessLastAssistantMessage } from "../thinking.js";
 import type { EmbeddedRunLivenessState } from "../types.js";
@@ -175,7 +177,7 @@ export function resolveIncompleteTurnPayloadText(params: {
     return null;
   }
 
-  if (hasOnlySilentAssistantReply(params.attempt.assistantTexts)) {
+  if (hasOnlySilentAssistantReply(params.attempt)) {
     return null;
   }
 
@@ -215,12 +217,66 @@ export function resolveIncompleteTurnPayloadText(params: {
     : "⚠️ Agent couldn't generate a response. Please try again.";
 }
 
-function hasOnlySilentAssistantReply(assistantTexts: readonly string[]): boolean {
-  const nonEmptyTexts = assistantTexts.filter((text) => text.trim().length > 0);
-  return (
-    nonEmptyTexts.length > 0 &&
-    nonEmptyTexts.every((text) => isSilentReplyPayloadText(text, SILENT_REPLY_TOKEN))
-  );
+// Sources we mine for "the assistant's intended user-visible text" when
+// payload count is zero. Extensible — append a new extractor when a
+// future provider/runtime emits the silent token through a path that
+// the existing sources don't cover. Each extractor returns a string;
+// empty strings are ignored.
+//
+// First non-empty source wins for the silent-reply check. We do NOT
+// concatenate across sources because pi-side and lastAssistant content
+// often duplicate the same text — concatenating would defeat the
+// silent-only check on partial duplicates.
+type SilentReplySource = (
+  attempt: Pick<
+    IncompleteTurnAttempt,
+    "assistantTexts" | "lastAssistant" | "currentAttemptAssistant"
+  >,
+) => string;
+
+const SILENT_REPLY_SOURCES: readonly SilentReplySource[] = [
+  // 1. The streaming-layer-collected text array. Populated by
+  //    pi-embedded-subscribe.ts pushAssistantText. Codex's `<final>...</final>`
+  //    output reliably lands here; some other providers (notably Gemini
+  //    with thoughtSignature-bearing text blocks) don't surface text
+  //    through this path even when the assistant emitted it.
+  (attempt) =>
+    attempt.assistantTexts
+      .filter((t) => t.trim().length > 0)
+      .join("\n")
+      .trim(),
+  // 2. The persisted assistant message's visible text. Covers cases
+  //    where the streaming-layer push didn't fire but the message has
+  //    a clean `<final>NO_REPLY</final>` (or bare NO_REPLY) text block.
+  //    Verified on pru's VM 2026-05-02: gemini-3.1-pro-preview emits
+  //    NO_REPLY via this path, and without this fallback the runner
+  //    surfaced "agent couldn't generate" as a user-visible error in
+  //    every group reply.
+  (attempt) => {
+    const msg = (attempt.currentAttemptAssistant ?? attempt.lastAssistant) as
+      | AssistantMessage
+      | undefined;
+    if (!msg) return "";
+    return extractAssistantVisibleText(msg).trim();
+  },
+];
+
+function hasOnlySilentAssistantReply(
+  attempt: Pick<
+    IncompleteTurnAttempt,
+    "assistantTexts" | "lastAssistant" | "currentAttemptAssistant"
+  >,
+  sources: readonly SilentReplySource[] = SILENT_REPLY_SOURCES,
+): boolean {
+  for (const source of sources) {
+    const text = source(attempt);
+    if (!text) continue;
+    // First non-empty source wins. If its content is silent-only, the
+    // whole turn was a deliberate suppression and the runner must not
+    // surface an incomplete-turn error.
+    return isSilentReplyPayloadText(text, SILENT_REPLY_TOKEN);
+  }
+  return false;
 }
 
 export function resolveReplayInvalidFlag(params: {

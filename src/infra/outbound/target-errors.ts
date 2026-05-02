@@ -22,6 +22,21 @@ export function unknownTargetError(provider: string, raw: string, hint?: string)
   return new Error(unknownTargetMessage(provider, raw, hint));
 }
 
+export function invalidTargetShapeMessage(provider: string, raw: string, expected: string): string {
+  // Phrased so the LLM (and human operators) see actionable specifics:
+  // what was passed, what shape this provider expects, and that the
+  // rejection is structural — no point retrying with the same id.
+  return (
+    `Invalid target shape for ${provider}: got "${raw}", expected ${expected}. ` +
+    `Provide a structurally-valid id; the system rejects shape mismatches up-front ` +
+    `before any send is attempted.`
+  );
+}
+
+export function invalidTargetShapeError(provider: string, raw: string, expected: string): Error {
+  return new Error(invalidTargetShapeMessage(provider, raw, expected));
+}
+
 function formatTargetHint(hint?: string, withLabel = false): string {
   const normalized = hint?.trim();
   if (!normalized) {

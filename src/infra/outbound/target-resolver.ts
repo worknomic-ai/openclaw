@@ -8,7 +8,11 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { defaultRuntime, type RuntimeEnv } from "../../runtime.js";
 import { normalizeLowercaseStringOrEmpty } from "../../shared/string-coerce.js";
 import { buildDirectoryCacheKey, DirectoryCache } from "./directory-cache.js";
-import { ambiguousTargetError, unknownTargetError } from "./target-errors.js";
+import {
+  ambiguousTargetError,
+  invalidTargetShapeError,
+  unknownTargetError,
+} from "./target-errors.js";
 import { maybeResolveIdLikeTarget, type ResolvedIdLikeTarget } from "./target-id-resolution.js";
 import {
   buildTargetResolverSignature,
@@ -352,6 +356,22 @@ export async function resolveMessagingTarget(params: {
   const providerLabel = plugin?.meta?.label ?? params.channel;
   const hint = plugin?.messaging?.targetResolver?.hint;
   const kind = detectTargetKind(params.channel, raw, params.preferredKind);
+  // Structural shape validation — runs first so unambiguous junk (e.g.
+  // an agent's own name passed as a WhatsApp target) gets a clear error
+  // before the directory lookup wastes a roundtrip and surfaces a
+  // generic "Unknown target". Channels register validateShape via their
+  // plugin's targetResolver block. Default = no validation, which keeps
+  // unstrict channels (e.g. webchat) untouched.
+  const shapeValidator = plugin?.messaging?.targetResolver?.validateShape;
+  if (shapeValidator) {
+    const shapeIssue = shapeValidator({ raw, preferredKind: params.preferredKind });
+    if (shapeIssue) {
+      return {
+        ok: false,
+        error: invalidTargetShapeError(providerLabel, shapeIssue.got, shapeIssue.expected),
+      };
+    }
+  }
   const normalizedInput = resolveNormalizedTargetInput(params.channel, raw);
   const normalized = normalizedInput?.normalized ?? raw;
   if (

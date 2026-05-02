@@ -106,3 +106,53 @@ export function looksLikeWhatsAppTargetId(raw: string): boolean {
     normalizeWhatsAppTarget(trimmed) !== null
   );
 }
+
+// Structural shape validator for the WhatsApp target field. Wired into
+// the channel's targetResolver.validateShape so resolveMessagingTarget
+// rejects unambiguous junk (e.g. an agent's own name passed as the
+// `target` for a message_send call) before any directory lookup or
+// adapter call. Defense-in-depth against LLMs hallucinating ids —
+// works regardless of model strength.
+//
+// Returns null when the shape MIGHT be valid (the directory lookup +
+// id-resolution pipeline owns the final yes/no in those cases). Returns
+// a structured rejection only when the shape is definitively wrong:
+//   - empty / whitespace
+//   - contains internal whitespace (E.164 + JIDs are whitespace-free)
+//   - looks like a bare alphabetic name (no @, no +, no digits) and
+//     doesn't match any of the WA-specific shapes the resolver knows
+//     about — these would always fall through to "Unknown target" in
+//     the directory layer, so we fail fast with actionable detail.
+export function validateWhatsAppTargetShape(params: {
+  raw: string;
+}): { expected: string; got: string } | null {
+  const trimmed = params.raw.trim();
+  const expected =
+    "E.164 phone (e.g. +14155550100), `<jid>@s.whatsapp.net`, or group JID `<id>@g.us`";
+  if (!trimmed) {
+    return { expected, got: params.raw };
+  }
+  // Internal whitespace is structurally invalid for every WA target shape.
+  if (/\s/.test(trimmed)) {
+    return { expected, got: trimmed };
+  }
+  // Already passes the existing id-shape check: leave it alone — caller
+  // pipeline will resolve via id-resolution.
+  if (looksLikeWhatsAppTargetId(trimmed)) {
+    return null;
+  }
+  // Bare alphabetic single tokens (no digits, dots, dashes, `@`, or
+  // `+`) are never valid WA targets. Catches the primary LLM failure
+  // mode — passing the agent's own name ("dobby") or the user's first
+  // name. Intentionally narrow: dotted handles (`alice.smith`) and
+  // dashed strings might match a directory contact, so we leave those
+  // to the directory pipeline rather than failing them up-front.
+  if (/^[A-Za-z]+$/.test(trimmed)) {
+    return { expected, got: trimmed };
+  }
+  // Anything else (digits with no plus, dotted handles, partially-shaped
+  // jids that don't match the existing checks) — let the directory
+  // pipeline have a crack at it. Better to surface "Unknown target" than
+  // false-reject a contact name the directory might match.
+  return null;
+}

@@ -565,6 +565,29 @@ export type ChannelMessagingAdapter = {
       display?: string;
       source?: "normalized" | "directory";
     } | null>;
+    /**
+     * Optional structural shape validation for the raw target string.
+     * Runs FIRST in the resolveMessagingTarget pipeline — before directory
+     * lookup, before looksLikeId. Channels declare this when they have a
+     * tight, machine-checkable shape (e.g. WhatsApp wants E.164 / `@s.whatsapp.net`
+     * / `@g.us`; Slack wants `C…` / `U…` / `D…` ids) and want to fail
+     * fast with a clear message rather than letting the directory lookup
+     * silently miss and surface a generic "Unknown target".
+     *
+     * Return `null` when the shape is acceptable (or when the channel has
+     * no opinion on shape). Return `{ expected, got }` to reject the
+     * target up-front; the resolver wraps this into a structured tool
+     * error so the LLM (or operator code) sees actionable details:
+     *   `error: "Invalid target shape for <provider>", expected: "<hint>", got: "<raw>"`.
+     *
+     * Defense-in-depth against LLMs hallucinating ids — works regardless
+     * of model strength (smaller/faster models that don't follow tool
+     * descriptions still get caught).
+     */
+    validateShape?: (params: {
+      raw: string;
+      preferredKind?: ChannelDirectoryEntryKind | "channel";
+    }) => { expected: string; got: string } | null;
   };
   formatTargetDisplay?: (params: {
     target: string;

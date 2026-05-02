@@ -30,6 +30,7 @@ import { checkWhatsAppHeartbeatReady } from "./heartbeat.js";
 import {
   isWhatsAppGroupJid,
   looksLikeWhatsAppTargetId,
+  validateWhatsAppTargetShape,
   normalizeWhatsAppMessagingTarget,
   normalizeWhatsAppTarget,
 } from "./normalize.js";
@@ -118,6 +119,7 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
         targetResolver: {
           looksLikeId: looksLikeWhatsAppTargetId,
           hint: "<E.164|group JID>",
+          validateShape: validateWhatsAppTargetShape,
         },
       },
       directory: {
